@@ -27,14 +27,14 @@ ChatGPT Sites へコマンド 1 つでデプロイする CLI（`sites`）の実�
 ## 1. 結論サマリ
 
 1. **Sites の実体は「Cloudflare Workers 上のホスティング + マニフェスト `.openai/hosting.json` + アーカイブ `dist/` のアップロード」**である。`cf` の `deploy`（ビルド → 検証 → アップロード → デプロイ）と同じ骨格を持ち、CLI の使用感を `cf` に寄せるのは現実的。
-2. **バインディングは D1 と R2 の 2 種のみ**。KV / Durable Objects / Queues / Service Bindings / Hyperdrive / Vectorize / Cron Triggers はマニフェストに表現手段がなく、**wrangler プロジェクトからの変換では「事前検査で停止」**するのが正しい。
-3. **Worker 型で `ASSETS` バインディングは使えない**（マニフェストに指定手段が無い）。ただし実測では `dist/client/` 配下のファイルは静的に配信される（`dist/` 直下は配信されない）。これは starter の README が「保証しない」としている挙動なので、CLI は同梱を許可するが依存を推奨しない。
-5. **認証は Codex の資格情報（`~/.codex/auth.json`）をそのまま使う**。`sites auth login` のような独自ログインは作らず、リフレッシュ時のみ書き戻す（`client_id` とローテーションは実測済み）。
-6. **`cf build` に相当する独立コマンドは作らない**。ビルドは `deploy` の内部処理とし、ビルド + 検査だけの需要は `sites deploy --dry-run` で満たす（デブロイ一発で完結する `cf` の使用感を優先）。
+2. **バインディングは D1 と R2 の 2 種のみ**。KV / Durable Objects / Queues / Service Bindings / Hyperdrive / Vectorize / Cron Triggers はマニフェストのキーとして存在せず、未知キーは保存時に `Extra inputs are not permitted` で落ちる（実測）。**wrangler プロジェクトからの変換では「事前検査で停止」**するのが正しい。
+3. **`ASSETS` バインディングは使える**（実測）。`env.ASSETS` は宣言なしで常に注入され、`ASSETS.fetch()` は `dist/client/` 配下の資産を返す。したがって wrangler の `assets`（`binding: "ASSETS"`）は `dist/client/` への変換で受けられる。ただし starter の README は保証を約束していないため、CLI は変換時に注記を出す。
 4. **単一 ESM 化は Rolldown で行う**（実測）。`external: [/^cloudflare:/, /^node:/]` を明示すると 414 B の単一 ESM になり、import はその 2 種類だけになる。`nodejs_compat` はホスト側で**有効**（実測）。WASM はバンドルできても実行時コンパイルが禁止されているため不可（実測）。
-5. `cf` との差分で埋めるべき穴は「ローカル開発サーバ・プレビュー・CI ビルド・ゾーン/DNS・暗号化に強い認証 UI」。逆に Sites 固有の「slug 予約確認・アクセス範囲・ドメイン接続・アナリティクス・DB ビューア・スケジュール」は `cf` に対応物がないので、`sites` 側で新規に設計する。
-7. 実測で確定した「ソース push 必須」「`commit_sha` 重複排除」「状態は `succeeded`」は実装の前提条件（詳細は [verification-ja.md](./verification-ja.md)）。
-
+5. **WebSocket は可、raw TCP は不可**（実測）。公開サイトでは `wss://` の往復が通り、`cloudflare:sockets` の `connect()` は書き込み時に `Stream was cancelled.` で落ちる。
+6. **認証は Codex の資格情報（`~/.codex/auth.json`）をそのまま使う**。`sites auth login` のような独自ログインは作らず、リフレッシュ時のみ書き戻す（`client_id` とローテーションは実測済み）。
+7. **`cf build` に相当する独立コマンドは作らない**。ビルドは `deploy` の内部処理とし、ビルド + 検査だけの需要は `sites deploy --dry-run` で満たす（デプロイ一発で完結する `cf` の使用感を優先）。
+8. **`cf` との差分で埋めるべき穴**は「ローカル開発サーバ・プレビュー・CI ビルド・ゾーン/DNS・暗号化に強い認証 UI」。逆に Sites 固有の「slug 予約確認・アクセス範囲・ドメイン接続・アナリティクス・DB ビューア・スケジュール」は `cf` に対応物がないので、`sites` 側で新規に設計する。
+9. 実測で確定した「ソース push 必須」「`commit_sha` 重複排除」「状態は `succeeded`」「マイグレーションは文字列順」は実装の前提条件（詳細は [verification-ja.md](./verification-ja.md)）。
 ---
 
 ## 2. Sites プラットフォームの実態
@@ -123,7 +123,7 @@ git -c credential.helper= -c http.extraHeader= -c http.followRedirects=false \
   },
   "d1": null,                       // 使うなら "DB" などバインディング名（文字列）
   "r2": null,                       // 同上
-  "capabilities": ["mcp"],          // 任意
+  "capabilities": ["mcp"],          // 任意（"mcp" 以外は保存時に拒否）
   "plugins": [],                    // 任意
   "connectors": []                  // 任意
 }
@@ -148,25 +148,25 @@ git -c credential.helper= -c http.extraHeader= -c http.followRedirects=false \
 | Cron（`triggers.crons`） | 不可（代替あり） | ソース確認 | マニフェストに triggers が無い。代わりに `create_schedule`（クラウドタスク）がある。wrangler 変換時は警告 + 続行可否フラグ |
 | Service Bindings | 不可 | ソース確認 | 同上。単一 Worker のみ |
 | Hyperdrive | 不可 | ソース確認 | 同上（TCP 前提でもあり §raw TCP も不可） |
-| WebSocket | 可（推定） | 未検証 | Workers ランタイムの `fetch` で `Upgrade: websocket` を返す方式。Sites 側で遮断する記述は見つからないが実測なし |
-| raw TCP | 不可 | ソース確認 | 手順書に "raw TCP is unavailable" と明記。`node:net` の接続も不可 |
+| WebSocket | 可 | **実測** | 公開サイトで `wss://<site>/ws` が接続し `send("hello") → echo:hello`。非公開サイトではハンドシェイクが成立しない（HTTP と同じ認可）。サブプロトコルは Worker が `Sec-WebSocket-Protocol` を返さないと失敗する |
+| raw TCP | 不可 | **実測** | `cloudflare:sockets` の `connect()` は example.com:80/443・1.1.1.1:53・127.0.0.1:80 のいずれも書き込み時に `Stream was cancelled.`。手順書の "raw TCP is unavailable" と一致 |
 | `node:` 組み込み | 可 | **実測** | ホスト側ビルドで `nodejs_compat` が有効（`node:path` の `join`/`sep` が動作）。Rolldown では `node:*` を external にして import を温存する（実測）。事前検査は警告に留める |
 | WASM | **不可** | **実測** | base64 埋め込みで単一 ESM にはできる（Rolldown の `load` フックで実測）が、実行時に `WebAssembly.instantiate(): Wasm code generation disallowed by embedder` で 500。ランタイムのコード生成が禁止されている。`.wasm` import は事前検査で**停止**する |
-| 静的資産の配信（`ASSETS` バインディング） | **不可** | ソース確認 | マニフェストに指定手段が無い。`assets` 付き wrangler は変換時に停止 |
-| 静的資産の配信（`dist/client`） | 可（実測）だが契約外 | **実測** | Worker 型でも `dist/client/*` は 200 で配信され、`dist/*` 直下は配信されない。ただし starter の README は単体アセットを置くなと明記しており、保証された契約ではない。CLI は同梱を許可しつつ警告しない程度に留める |
+| 静的資産の配信（`ASSETS` バインディング） | **可** | **実測** | `env.ASSETS` は宣言なしで存在し（`Object.keys(env)` が `["ASSETS"]`）、`ASSETS.fetch()` が `dist/client/hello.txt` を 200 で返す。`assets` は `binding: "ASSETS"` のときだけ変換可 |
+| 静的資産の配信（`dist/client`） | 可 | **実測** | Worker 型でも `dist/client/*` は 200、`/client/*` と `dist/*` 直下は 404。`ASSETS` の実体でもある。starter の README は「保証しない」立場なので、変換時に注記を出す |
 | 静的サイト配信 | 可 | ソース確認 | `static.directory` + `not_found_handling`。`dist/` へ正規化される |
 | 環境変数 | 可 | **実測** | `update_environment_variables.set_values[{key,value,is_secret,type:"envvar"}]` → `revision` が増える。反映には**再デプロイが必要**（同一 `version_id` の再デプロイで反映されることを実測） |
 | シークレット | 可 | ソース確認 | 同ツールの `is_secret: true`。取得 API は無いので CLI は値を再表示しない |
-| カスタムドメイン | 可 | **実測** | `add_custom_domain` が CNAME ターゲット + **TXT 2 本**（`_openai-site-verification`, `_cf-custom-hostname`）を返す。proxied CNAME + TXT で約 40 秒後に `active/active/active` |
-| 公開範囲 | 可 | ソース確認 + 実測（既定値） | `update_site_access.access_mode` = `public` / `workspace_all` / `custom`（+ メール・グループ許可リスト）。作成直後の `get_site` は `access_mode: "custom"` で、匿名アクセスは 401（実測） |
+| カスタムドメイン | 可 | **実測** | `add_custom_domain` が CNAME ターゲット + **TXT 2 本**（`_openai-site-verification`, `_cf-custom-hostname`）を返す。proxied CNAME + TXT で約 40 秒後に `active/active/active`。apex は A 2 本（`162.159.143.30`, `172.66.3.26`）+ TXT 2 本 |
+| 公開範囲 | 可 | **実測** | `update_site_access.access_mode` = `public` / `workspace_all` / `custom`（+ メール・グループ許可リスト）。既定は `custom`（匿名 401）。`public` は 40–60 秒で匿名 200、`custom` へ戻すと 45–60 秒で 401。`workspace_all` は API 受理のみ確認（実効は未検証） |
 | D1 マイグレーション適用順序 | 可 | **実測** | journal 順に適用され、適用済みは再実行されない（0000 適用 → 行 insert → 0001 適用で行が保持された）。Worker アップロード前に適用される |
 | マイグレーションのファイル名規則 | 可（drizzle-kit 準拠） | ソース確認 | `drizzle/NNNN_name.sql` + `drizzle/meta/_journal.json`。`dist/.openai/drizzle` へコピーされる。順序は journal |
 | 単一 ESM 化（Rolldown）と `cloudflare:workers` | 可 | **実測** | `external: [/^cloudflare:/, /^node:/]` を指定。未指定でも Rolldown は警告して external 扱いにする（esbuild はエラー）。バンドル後の import は `cloudflare:workers` と `node:*` のみになる |
-| サイト内 MCP サーバ | 可 | ソース確認 | `capabilities: ["mcp"]` + `POST /mcp`（stateless JSON-RPC、MCP 2026-07-28） |
+| サイト内 MCP サーバ | 可（但しエッジで OAuth 必須） | **実測** | `capabilities: ["mcp"]` で `has_mcp: true`、`mcp_connection` が返る。`POST /mcp` は 401 + `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp"`。バイパストークンでは通らない |
 | アナリティクス | 可 | ソース確認 | `get_site_analytics_overview` / `list_site_analytics_events` / `query_site_analytics_event` |
 | ログ | 可（pull のみ） | 実測（形状） | `get_site_worker_logs({since_minutes, limit, errors_only})` は Cloudflare のイベント形式（`$metadata`, `source.message`, `$workers.event`）。例外は `source.exception.stack` に入る。`--follow` はポーリング実装 |
 | 定期実行 | 可（Sites 流） | ソース確認 | `create_schedule` / `validate_suggested_schedule`。cron 式ではなく「タスク + リクエスト ID」 |
-| バージョン切り戻し | 可 | ソース確認 | `list_site_versions` → `deploy_site_version(version_id)` |
+| バージョン切り戻し | 可 | ソース確認 | `list_site_versions` → `deploy_site_version(version_id)`。ただし `access_mode` が `custom` 以外だと `deploy_private_site_version` は 400（実測） |
 | サイト削除 | 可 | **実測** | `delete_site` は `{project_id, was_deleted: true}` を返す。取り消し不可。削除後は `list_sites` から消え、`get_site` は 404 |
 | 一覧・所属 | 可 | **実測** | `list_sites` は `{items, cursor}`。作成後は 1 件、削除後は `{items: [], cursor: null}` |
 | slug 空き確認 | 可 | 実測 | `check_slug_availability("sites-cli-probe")` → `{available:true, status:"available"}` |
@@ -458,7 +458,7 @@ $ sites deploy --message "Fix header parsing" --tag v1.2.0
 7. `dist/` を tar.gz 化（一時ディレクトリ、チェックアウト外）。512 MiB を超えたら exit 2。
 8. 添付 3 段階（§5.5）→ `{download_url, file_id, mime_type, file_name}` を組み立てる。
 9. `save_site_version({project_id, commit_sha, archive})` → `version_id`。
-10. 公開範囲に応じて `deploy_private_site_version` または `deploy_site_version` → `deployment_id`。
+10. `get_site` で `access_mode` を確認し、`custom` なら `deploy_private_site_version`、それ以外（`public` / `workspace_all`）なら `deploy_site_version` → `deployment_id`。取り違えると `INVALID_ARGUMENT site_not_owner_only` で 400 になる。
 11. `get_deployment_status` を 1 秒間隔（上限 5 秒）で `pending | publishing` の間ポーリング。**`succeeded` で URL を表示**、`failed` / `error` で `failure_message` とログ取得を案内（exit 1）。
 12. `.sites/state.json` 更新。
 
@@ -509,7 +509,7 @@ $ sites deploy --message "Fix header parsing" --tag v1.2.0
 #### `sites access [show|set]`
 
 - `show`: `get_site` の `access_mode` と許可リスト。
-- `set --mode public|workspace|custom [--email …] [--group …] [--viewer …] [--editor …]`: `update_site_access`。`custom` 以外で許可リストを渡したら exit 2（意味がないため）。
+- `set --mode public|workspace|custom [--email …] [--group …] [--viewer …] [--editor …]`: `update_site_access`。`custom` 以外で許可リストを渡したら exit 2（意味がないため）。公開範囲の反映は 40–60 秒かかるので、`--wait` 指定時は `get_site` を 3 秒間隔で最大 120 秒ポーリングし、`access_mode` が一致した時点で終了する。`workspace_all` を指定した場合は「組織構成に依存し、実効は保証しない」旨を stderr に出す。
 
 #### `sites analytics [summary|events] [--since 24h] [--json]`
 
@@ -588,7 +588,7 @@ $ sites deploy --message "Fix header parsing" --tag v1.2.0
 | 1 | `main` が存在し、ファイルとして読める | ✗ 停止 |
 | 2 | `main` が ESM（`import`/`export` を含む） | ✗ 停止（CJS は `require` 変換が不確実） |
 | 3 | `main` が `export default { fetch }` を持つ（バンドル後に検証） | ✗ 停止 |
-| 4 | `assets` と `main` の併用がない | ✗ 停止（ASSETS 不可） |
+| 4 | `assets` と `main` の併用がある場合、`assets.binding` が `ASSETS`（既定）で `assets.directory` が存在する | ✗ 停止（別名バインディングは不可。`dist/client` へ変換） |
 | 5 | `assets.directory` が存在する（静的モード時） | ✗ 停止 |
 | 6 | `kv_namespaces` / `durable_objects` / `queues` / `services` / `hyperdrive` / `vectorize` / `ai` / `browser` / `analytics_engine` がない | ✗ 停止（`--allow-unsupported` で該当のみ除外可） |
 | 7 | `triggers.crons` がない | ⚠ 警告（`--allow-cron-drop` で続行） |
@@ -598,10 +598,10 @@ $ sites deploy --message "Fix header parsing" --tag v1.2.0
 | 11 | `compatibility_flags` に `nodejs_compat` 以外が含まれる | ⚠ 警告 |
 | 12 | `[[rules]]` / `build.upload.format` などの独自ローダ指定がない | ✗ 停止 |
 | 13 | `main` の import がすべて解決できる（`cloudflare:*` / `node:*` を除く） | ✗ 停止（Rolldown は未解決を警告して external にするため、警告を検査で拾う） |
-| 14 | `drizzle/` がある場合、`meta/_journal.json` が存在する | ⚠ 警告（無いと順序保証なし） |
+| 14 | `drizzle/*.sql` がある場合、`meta/_journal.json` が存在するか、ファイル名がゼロ埋め（`0000_`）である | ⚠ 警告（順序は文字列順。`10_` が `1_` より先に走る） |
 | 15 | 生成物が 512 MiB 未満 | ✗ 停止 |
 | 16 | `.wasm` / `.txt` などの特殊 import がない | ✗ 停止（WASM は実行時コンパイル不可。§3） |
-| 17 | `assets` バインディング（`env.ASSETS`）を使っていない | ✗ 停止 |
+| 17 | `env.ASSETS` 以外の方法で資産を読んでいない（`env.ASSETS` は可） | ⚠ 警告（`ASSETS` は常に注入される） |
 
 ### 6.4 変換マッピング
 
@@ -609,13 +609,14 @@ $ sites deploy --message "Fix header parsing" --tag v1.2.0
 | --- | --- | --- |
 | `name` | `slug`（正規化）+ `title` | `check_slug_availability` で確認 |
 | `main` | Rolldown のエントリ | `dist/server/index.js` へ |
-| `assets.directory` | `static.directory` | 正規化して `dist` に |
-| `assets.not_found_handling` | `static.not_found_handling` | 値はそのまま（`single-page-application` 等） |
+| `assets.directory`（`main` なし） | `static.directory` | 正規化して `dist` に |
+| `assets.directory`（`main` あり、`binding: "ASSETS"`） | `dist/client/` へコピー | `ASSETS` は常に注入されるので宣言不要 |
+| `assets.not_found_handling` | `static.not_found_handling`（静的モードのみ） | 値はそのまま（`single-page-application` 等）。Worker モードでは無視 |
 | `d1_databases[0].binding` | `d1` | `database_id` は破棄 |
 | `r2_buckets[0].binding` | `r2` | `bucket_name` は破棄 |
 | `vars` | `update_environment_variables`（`is_secret:false`） | デプロイ時に反映 |
 | `secrets`（`wrangler secret`） | `--env-file` / 対話入力 | 値は読めないため移行不可。鍵名のみ警告一覧に出す |
-| `triggers.crons` | 変換せず警告 | 代替: `create_schedule` |
+| `triggers.crons` | 変換せず警告 | 代替: `create_schedule`（削除 API が無いため自動作成はしない） |
 | `routes` / `custom_domains` | `sites domains add` を案内 | 自動追加はしない |
 | `compatibility_date` / `flags` | 無視 | 警告のみ |
 | `migrations_dir` | `drizzle/` を探索 | 既定 `drizzle` |
@@ -661,7 +662,8 @@ await build({
 
 ### 6.6 停止条件（要約）
 
-- Worker + `assets` の併用、`env.ASSETS` の利用
+- `assets.binding` が `ASSETS` 以外の Worker + `assets` の併用
+- `assets.directory` が存在しない、または `main` と `assets` の両方が無い
 - `.wasm` / バイナリアセットの import（実行時コンパイル不可）
 - 静的 + D1/R2/`capabilities`/マイグレーション
 - 未対応バインディング（明示的な `--allow-unsupported` がない限り）
@@ -698,7 +700,7 @@ await build({
 
 - ファイル: `src/convert/detect.ts`, `src/convert/jsonc.ts`, `src/convert/toml.ts`, `src/convert/preflight.ts`, `src/convert/mapping.ts`
 - 内容: §6.2〜6.4 の実装。検査結果を `{level, code, message, hint}` の配列で返す。
-- 受入: フィクスチャ 6 種（正常 Worker / 静的 / KV 入り / `assets`+`main` / 複数 D1 / cron 入り）で期待どおりの判定。
+- 受入: フィクスチャ 7 種（正常 Worker / 静的 / KV 入り / `assets`+`main`（`ASSETS`）/ `assets` 別名 / 複数 D1 / cron 入り）で期待どおりの判定。
 
 ### U5. ビルド（静的）
 
@@ -710,7 +712,7 @@ await build({
 
 - ファイル: `src/build/worker.ts`, `src/build/bundle.ts`, `src/build/verify.ts`
 - 内容: §6.5 の Rolldown 呼び出し、`external` の明示、`.wasm` の拒否、テキストのインライン化、出力検証（import 許可リスト、単一ファイル、`export default`）。
-- 受入: `cloudflare:workers` + `node:path` を使うフィクスチャが通り、`.wasm` import を exit 5 で拒否。`assets` 併用も exit 5。
+- 受入: `cloudflare:workers` + `node:path` を使うフィクスチャが通り、`.wasm` import を exit 5 で拒否。`assets` は `ASSETS` なら通り、別名なら exit 5。
 
 ### U7. ソース同期
 
@@ -775,7 +777,7 @@ await build({
 | 5 | デプロイ状態 | `pending → publishing → succeeded`（終端は `succeeded`） | 実測 |
 | 6 | `nodejs_compat` | 有効 | 実測 |
 | 7 | WASM | 実行時コンパイル不可（500） | 実測 |
-| 8 | Worker の `dist/client` | 配信される（契約外） | 実測 |
+| 8 | Worker の `dist/client` | 配信される（`ASSETS` の実体。round 2 で契約として追認） | 実測 |
 | 9 | D1 マイグレーション | journal 順、適用済みはスキップ、データ保持 | 実測 |
 | 10 | 環境変数 | 変更だけでは反映されず、再デプロイで反映 | 実測 |
 | 11 | カスタムドメイン | CNAME + TXT 2 本、約 40 秒で `active` | 実測 |
@@ -783,8 +785,17 @@ await build({
 | 13 | レート制限 | 30 連続呼び出しで 429 なし（約 0.95 秒/回） | 実測 |
 | 14 | OAuth リフレッシュ | 成功、`expires_in: 864000`、RT ローテーション | 実測 |
 | 15 | Rolldown の単一 ESM 化 | `external` 明示で 414 B、import は `cloudflare:*` / `node:*` のみ | 実測 |
+| 16 | `ASSETS` バインディング | 常に注入。`ASSETS.fetch()` が `dist/client/hello.txt` を 200 で返す。`capabilities` は `"mcp"` のみ受理 | 実測 |
+| 17 | 公開サイト（`public`） | 匿名 200 まで 40–60 秒。`deploy_site_version` を使う。`deploy_public_site_version` は存在しない | 実測 |
+| 18 | `workspace_all` / 許可リスト | `workspace_all` は受理（`available_access_modes` には出ない）。不正グループは `invalid_access_policy`、外部メールは `invalid_external_visitor_email` | 実測（実効は未検証） |
+| 19 | apex ドメイン | 受理。A 2 本（`162.159.143.30`, `172.66.3.26`）+ TXT 2 本 | 実測 |
+| 20 | WebSocket / raw TCP | `wss://` の往復は成功。`connect()` は `Stream was cancelled.` | 実測 |
+| 21 | KV / DO / Queues / Hyperdrive | 未知キーは `Extra inputs are not permitted`。実行時の `env` は `ASSETS` のみ | 実測 |
+| 22 | `_journal.json` なし | 適用される。順序は文字列順（`10_` が `1_` より先） | 実測 |
+| 23 | 失敗デプロイ | `failed` + `failure_message` に生のエラー（`Uncaught SyntaxError: …` 等） | 実測 |
+| 24 | アナリティクス / サイト内 MCP / スケジュール | 分析はバケット整列必須。`/mcp` は OAuth ゲートで 401。スケジュールは削除 API 不在のため未作成 | 実測（MCP ハンドラは未検証） |
 
-**引き続き未検証**（実装時は安全側に倒す）: `ASSETS` バインディング、`public` / `workspace_all` の実挙動、apex ドメイン、WebSocket、`_journal.json` なしの適用順、失敗デプロイの `failure_message` 形状、アナリティクス / サイト内 MCP / スケジュール。
+**引き続き未検証**（実装時は安全側に倒す）: `workspace_all` の実効（他ユーザーでの確認）、サイト内 MCP のハンドラ挙動（リソース向け OAuth トークンが必要）、アナリティクスの新規イベント発生。
 
 書き込み系の再検証が必要になった場合は、専用の使い捨てサイトを 1 つ作り、[verification-ja.md](./verification-ja.md) の手順に沿って行う。
 
