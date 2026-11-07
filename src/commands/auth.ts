@@ -1,6 +1,6 @@
 // `sites auth whoami` (plan §4).
 
-import type { CommandDefinition, CommandResult } from "../types.ts";
+import type { CommandResult, DefineCommand } from "../types.ts";
 import { formatJst } from "../util.ts";
 
 interface WhoamiData {
@@ -11,7 +11,7 @@ interface WhoamiData {
   server?: { name?: string; version?: string };
 }
 
-export function registerAuthCommands(define: (command: CommandDefinition) => void): void {
+export function registerAuthCommands(define: DefineCommand): void {
   define({
     path: ["auth", "whoami"],
     flags: ["check"],

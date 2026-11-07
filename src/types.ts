@@ -16,6 +16,8 @@ export interface CommandResult<T = unknown> {
   // Method syntax keeps the callback bivariant so concrete results can be
   // registered as an erased CommandDefinition.
   human?(data: T): void;
+  /** Overrides the process exit code for successful (non-throwing) results. */
+  exitCode?: number;
 }
 
 export interface CommandDefinition<T = unknown> {

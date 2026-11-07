@@ -11,7 +11,9 @@ import { McpClient } from "./mcp.ts";
 import { CliError, EXIT } from "./errors.ts";
 import { colorEnabled, printError } from "./output.ts";
 import type { CommandContext, Env, OutputStream } from "./types.ts";
-import { stringifyJson } from "./util.ts";
+import { runCleanup, stringifyJson } from "./util.ts";
+
+export { registerCleanup } from "./util.ts";
 
 export interface MainOptions {
   env?: Env;
@@ -20,22 +22,6 @@ export interface MainOptions {
   stderr?: OutputStream;
 }
 
-const cleanupHandlers: Array<() => void> = [];
-
-/** Registers a best-effort cleanup callback (temp files) for SIGINT/SIGTERM. */
-export function registerCleanup(handler: () => void): void {
-  cleanupHandlers.push(handler);
-}
-
-export function runCleanup(): void {
-  for (const handler of cleanupHandlers.splice(0)) {
-    try {
-      handler();
-    } catch {
-      // Cleanup is best-effort.
-    }
-  }
-}
 
 export async function main(
   argv: string[] = process.argv.slice(2),
@@ -116,7 +102,7 @@ export async function main(
     } else {
       stdout.write(stringifyJson(result.data) + "\n");
     }
-    return EXIT.OK;
+    return result.exitCode ?? EXIT.OK;
   } catch (error) {
     const cliError = error instanceof CliError
       ? error

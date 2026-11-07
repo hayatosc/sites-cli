@@ -1,6 +1,6 @@
 // `sites list` and `sites info` (plan §4).
 
-import type { CommandDefinition, CommandContext, CommandResult } from "../types.ts";
+import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
 import type {
   CustomDomainRecord,
   ListCustomDomainsResult,
@@ -48,7 +48,7 @@ function renderTable(ctx: CommandContext, header: string[], rows: string[][]): v
   ctx.stdout.write([render(header), ...rows.map(render)].join("\n") + "\n");
 }
 
-export function registerSiteCommands(define: (command: CommandDefinition) => void): void {
+export function registerSiteCommands(define: DefineCommand): void {
   define({
     path: ["list"],
     flags: ["limit", "cursor", "role", "all"],

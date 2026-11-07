@@ -77,3 +77,20 @@ export function parseIntegerOption(
   }
   return value;
 }
+
+const cleanupHandlers: Array<() => void> = [];
+
+/** Registers a best-effort cleanup callback (temp files) for SIGINT/SIGTERM. */
+export function registerCleanup(handler: () => void): void {
+  cleanupHandlers.push(handler);
+}
+
+export function runCleanup(): void {
+  for (const handler of cleanupHandlers.splice(0)) {
+    try {
+      handler();
+    } catch {
+      // Cleanup is best-effort.
+    }
+  }
+}

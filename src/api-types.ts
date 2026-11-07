@@ -103,3 +103,11 @@ export interface SourceCredential {
   publish_on_push_accepted?: boolean;
   [key: string]: unknown;
 }
+
+export interface UploadedArchive {
+  download_url: string;
+  file_id: string;
+  mime_type: string;
+  file_name: string;
+  file_size_bytes: number;
+}
