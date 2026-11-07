@@ -42,6 +42,7 @@
   - tar の作成（システムの `tar` を `-C <stage> -czf <archive> dist` で呼ぶ）
   - 進捗表示・色付け（`NO_COLOR` と TTY 判定のみ）
 - Rolldown は同梱しない。Worker のバンドルは、プロジェクト側の `rolldown`（devDependency）または `npx rolldown` を使う。詳細は §7.3。
+- 配布は npm パッケージ **`@hayatosc/sites`**（無スコープの `sites` は npm で取得済みのため）。`bin` 名は `sites` で、インストール後のコマンド名は `sites` のまま。`npx @hayatosc/sites deploy` のように npx からも実行できる。
 
 ### 2.3 実行環境
 
@@ -727,15 +728,14 @@ await build({
 
 ## 10. 未決定事項
 
-1. **配布形態**: リポジトリ名（`sites-cli` のままか）、npm 公開の有無、`npx sites` を許すか。単一 `.mjs` をそのまま配る案と、npm に publish する案がある。
-2. **Rolldown の入手方法**: 依存なしの前提で、プロジェクト側の `rolldown` を使うか `npx rolldown` を呼ぶか。どちらも無い場合に「バンドルせず単一 ESM を要求する」へ落とすか。
-3. **`doctor` の範囲**: 12 項目で足りるか。`--fix-git` が触ってよい範囲（作業用 remote の掃除までか、`fetch` までか）。
-4. **ASSETS 変換の最終判断**: `assets.directory` + `main` を `dist/client/` へ移す変換を既定で有効にするか、`--with-assets` のような明示フラグにするか。
-5. **`--tag` の保存先**: API にバージョンのタグが無いため、`.sites/state.json` に持つか、git のタグに写すか。
-6. **`logs --follow` の上限**: ポーリング間隔の上限（60 秒）と、何時間まで追うか。
-7. **`analytics` の既定窓**: 24 時間か 7 日か。バケット整列の基準（UTC-08:00）を利用者に見せるか。
-8. **`workspace_all` の案内文**: 実効性が未確認のため、指定時に警告を出すか拒否するか。
-9. **複数サイト運用**: 1 リポジトリで複数サイトを持つ構成（`sites/<name>/`）を許すか。
-10. **`sites delete` 後の `project_id` の扱い**: `hosting.json` から自動で消すか、手動のままにするか。
+1. **Rolldown の入手方法**: 依存なしの前提で、プロジェクト側の `rolldown` を使うか `npx rolldown` を呼ぶか。どちらも無い場合に「バンドルせず単一 ESM を要求する」へ落とすか。
+2. **`doctor` の範囲**: 12 項目で足りるか。`--fix-git` が触ってよい範囲（作業用 remote の掃除までか、`fetch` までか）。
+3. **ASSETS 変換の最終判断**: `assets.directory` + `main` を `dist/client/` へ移す変換を既定で有効にするか、`--with-assets` のような明示フラグにするか。
+4. **`--tag` の保存先**: API にバージョンのタグが無いため、`.sites/state.json` に持つか、git のタグに写すか。
+5. **`logs --follow` の上限**: ポーリング間隔の上限（60 秒）と、何時間まで追うか。
+6. **`analytics` の既定窓**: 24 時間か 7 日か。バケット整列の基準（UTC-08:00）を利用者に見せるか。
+7. **`workspace_all` の案内文**: 実効性が未確認のため、指定時に警告を出すか拒否するか。
+8. **複数サイト運用**: 1 リポジトリで複数サイトを持つ構成（`sites/<name>/`）を許すか。
+9. **`sites delete` 後の `project_id` の扱い**: `hosting.json` から自動で消すか、手動のままにするか。
 
-判断はすべてオーナーが行う。実装は 1〜3 を先に決めないと着手できない。
+判断はすべてオーナーが行う。配布形態は決定済み（§2.2）。実装は 1〜2 を先に決めないと着手できない。
