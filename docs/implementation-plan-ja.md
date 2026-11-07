@@ -35,7 +35,8 @@
 
 ### 2.2 実装形態
 
-- **単一ファイルの Node ESM（`.mjs`）**。実行時依存は同梱する Rolldown のみ。
+- **TypeScript のソースを `src/` に分割**して実装し、同梱の Rolldown で単一ファイル `dist/cli.mjs` にバンドルして配布する。`package.json` の `bin`（`sites`）は `dist/cli.mjs` を指す。実行時依存は同梱する Rolldown のみ。
+- `typescript` を開発依存に置き、`tsc --noEmit` の型チェックを通す。テストは `node:test` を使う。
 - そのため次のものは自前で実装する。
   - SSE の解析（`data:` 行の連結。JSON がそのまま返る場合も受ける）
   - JSONC のコメント・末尾カンマの除去
