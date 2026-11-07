@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { commandHelp, generalHelp, isHumanRequested, parseCli } from "./args.ts";
+import { commandHelp, generalHelp, groupHelp, isHumanRequested, parseCli } from "./args.ts";
 import { createCommands } from "./commands/index.ts";
 import { loadAuthIdentity } from "./auth.ts";
 import type { Identity } from "./auth.ts";
@@ -54,7 +54,13 @@ export async function main(
     return EXIT.OK;
   }
   if (parsed.help || !parsed.command) {
-    stdout.write(parsed.command ? commandHelp(parsed.command) : generalHelp(commands));
+    stdout.write(
+      parsed.command
+        ? commandHelp(parsed.command, env)
+        : parsed.helpGroup
+          ? groupHelp(parsed.helpGroup, commands, env)
+          : generalHelp(commands, env),
+    );
     return EXIT.OK;
   }
 

@@ -27,6 +27,7 @@ export interface CommandDefinition<T = unknown> {
   flags?: string[];
   positionals?: { min: number; max: number; names?: string[] };
   summary?: string;
+  keywords?: string[];
   usage?: string;
   run: (ctx: CommandContext) => Promise<CommandResult<T>>;
 }
@@ -44,6 +45,8 @@ export interface ParsedCli {
   positionals: string[];
   help: boolean;
   version: boolean;
+  /** Set when `<group> --help` was requested. */
+  helpGroup?: string;
 }
 
 export interface CommandContext {

@@ -15,6 +15,8 @@ npx @hayatosc/sites auth whoami
 npx @hayatosc/sites auth whoami --check   # connect to MCP and verify
 ```
 
+`auth whoami` reports `authenticated`, `authSource`, `tokenValid`, `accountId`, `expiresAt`, and `refreshTokenPresent`. Like `cf auth whoami`, an unauthenticated invocation succeeds with `authenticated: false` so scripts can inspect the result; `--check` still requires working credentials.
+
 ## Getting started
 
 ```sh
@@ -46,15 +48,15 @@ npx @hayatosc/sites open
 | `sites open`                                     | Open in a browser (`--print` for the URL only) |
 | `sites delete --yes`                             | Delete a site                                  |
 | `sites doctor`                                   | Diagnose the local environment and connection  |
-| `sites cli search <query>`                       | Search commands                                |
+| `sites cli search <query>`                       | Rank up to five commands by intent             |
 | `sites docs search <query>`                      | Search the bundled manual                      |
-| `sites schema [tool]`                            | Print MCP tool input schemas                   |
+| `sites schema <tool>` / `sites schema --list`    | Print MCP tool input schemas                   |
 
 Run `sites <command> --help` for command-specific flags.
 
 ## Output and exit codes
 
-The default output is JSON. `--human` produces human-readable output. Progress and warnings go to stderr and can be suppressed with `--quiet`.
+The default output is JSON. `--human` produces human-readable output. Progress and warnings go to stderr and can be suppressed with `--quiet` (or re-enabled with `--quiet=false`). Search and schema results place their arrays and objects directly in `data`, matching the shape of the equivalent `cf` commands.
 
 | Code | Meaning                                     |
 | ---- | ------------------------------------------- |
@@ -80,4 +82,4 @@ nlx vp test
 nlx vp pack
 ```
 
-`dist/cli.mjs` is the executable. Build, test, lint, formatting, and type checking all use Vite+ (`vp`). The user manual lives in `docs/` and is embedded into the CLI at build time, so `sites docs search` does not need an external `docs/` directory.
+`dist/cli.mjs` is the executable. Build, test, lint, formatting, and type checking all use Vite+ (`vp`). The user manual lives in `docs/` and is embedded into the CLI at build time, so `sites docs search` does not need an external `docs/` directory. Help output includes a command-discovery block when an agent harness is detected; `sites cli search` and `sites docs search` are the intended entry points for agents.

@@ -54,6 +54,11 @@ test("--version and help", async () => {
   const commandHelp = await runCli(["list", "--help"]);
   assert.equal(commandHelp.code, 0);
   assert.match(commandHelp.stdout, /Usage: sites list/);
+
+  const groupHelp = await runCli(["auth", "--help"]);
+  assert.equal(groupHelp.code, 0);
+  assert.match(groupHelp.stdout, /Usage: sites auth <command>/);
+  assert.match(groupHelp.stdout, /whoami/);
 });
 
 test("usage errors exit 2 with JSON by default", async () => {
@@ -76,6 +81,22 @@ test("usage errors exit 2 with JSON by default", async () => {
   const human = await runCli(["bogus", "--human"]);
   assert.equal(human.code, 2);
   assert.match(human.stderr, /^Error: /);
+
+  const typo = await runCli(["deply", "--human"]);
+  assert.equal(typo.code, 2);
+  assert.match(typo.stderr, /Did you mean `sites deploy`/);
+});
+
+test("agent help includes command discovery", async () => {
+  const result = await runCli(["--help"], { env: { PI_CODING_AGENT: "true" } });
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /STOP: AGENT COMMAND DISCOVERY/);
+  assert.match(result.stdout, /sites cli search/);
+});
+
+test("--quiet=false keeps progress output enabled", async () => {
+  const result = await runCli(["list", "--quiet=false", "--help"]);
+  assert.equal(result.code, 0, result.stderr);
 });
 
 test("auth whoami uses SITES_ACCESS_TOKEN", async () => {
@@ -85,9 +106,21 @@ test("auth whoami uses SITES_ACCESS_TOKEN", async () => {
   assert.equal(result.code, 0);
   const body = JSON.parse(result.stdout);
   assert.equal(body.ok, true);
-  assert.equal(body.data.source, "SITES_ACCESS_TOKEN");
-  assert.equal(body.data.refresh_token_present, false);
+  assert.equal(body.data.authenticated, true);
+  assert.equal(body.data.authSource, "SITES_ACCESS_TOKEN");
+  assert.equal(body.data.tokenValid, true);
+  assert.equal(body.data.refreshTokenPresent, false);
   assert.equal(typeof body.meta.duration_ms, "number");
+});
+
+test("auth whoami reports unauthenticated as a successful result", async () => {
+  const result = await runCli(["auth", "whoami"], {
+    env: { SITES_ACCESS_TOKEN: undefined, SITES_AUTH_PATH: path.join(tempDir(), "missing.json") },
+  });
+  assert.equal(result.code, 0);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.data.authenticated, false);
+  assert.equal(body.data.error, "Not logged in");
 });
 
 test("auth whoami --check initializes over SSE", async () => {
@@ -97,7 +130,7 @@ test("auth whoami --check initializes over SSE", async () => {
       env: { SITES_MCP_URL: mcp.url },
     });
     assert.equal(result.code, 0);
-    assert.match(result.stdout, /サーバ: plugin-runtime/);
+    assert.match(result.stdout, /Server: plugin-runtime/);
     assert.equal(mcp.calls[0].method, "initialize");
     assert.equal(mcp.calls[0].headers.authorization, "Bearer test-token");
     assert.equal(mcp.calls[0].headers["x-openai-product-sku"], "codex");
@@ -122,8 +155,9 @@ test("auth whoami reads the Codex file and reports the source", async () => {
   });
   assert.equal(result.code, 0);
   const body = JSON.parse(result.stdout);
-  assert.equal(body.data.account_id, "acct_1");
-  assert.match(body.data.source, /auth\.json$/);
+  assert.equal(body.data.accountId, "acct_1");
+  assert.equal(body.data.authenticated, true);
+  assert.match(body.data.authSource, /auth\.json\)$/);
 });
 
 test("expired token refreshes, rotates, and writes back atomically", async () => {

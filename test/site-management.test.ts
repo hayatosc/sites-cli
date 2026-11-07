@@ -264,11 +264,15 @@ test("doctor reports failures with exit 1", async () => {
 test("cli search and docs search find entries", async () => {
   const cliResult = await runCli(["cli", "search", "deploy site"]);
   assert.equal(cliResult.code, 0, cliResult.stderr);
-  assert.equal(JSON.parse(cliResult.stdout).data.results[0].command, "deploy");
+  const hits = JSON.parse(cliResult.stdout).data;
+  assert.ok(Array.isArray(hits));
+  assert.ok(hits.length <= 5);
+  assert.equal(hits[0].command, "sites deploy");
+  assert.equal(typeof hits[0].summary, "string");
 
   const docsResult = await runCli(["docs", "search", "commit_sha"]);
   assert.equal(docsResult.code, 0, docsResult.stderr);
-  assert.ok(JSON.parse(docsResult.stdout).data.results.length > 0);
+  assert.ok(Array.isArray(JSON.parse(docsResult.stdout).data));
 });
 
 test("schema lists and filters MCP tools", async () => {
@@ -290,13 +294,16 @@ test("schema lists and filters MCP tools", async () => {
     return undefined;
   });
   try {
-    const all = await runCli(["schema"], { env: { SITES_MCP_URL: mock.url } });
+    const all = await runCli(["schema", "--list"], { env: { SITES_MCP_URL: mock.url } });
     assert.equal(all.code, 0, all.stderr);
-    assert.equal(JSON.parse(all.stdout).data.tools.length, 2);
+    assert.equal(JSON.parse(all.stdout).data.length, 2);
+
+    const missing = await runCli(["schema"], { env: { SITES_MCP_URL: mock.url } });
+    assert.equal(missing.code, 1);
 
     const one = await runCli(["schema", "get_site"], { env: { SITES_MCP_URL: mock.url } });
     assert.equal(one.code, 0, one.stderr);
-    assert.equal(JSON.parse(one.stdout).data.tools[0].name, "sites.get_site");
+    assert.equal(JSON.parse(one.stdout).data.name, "sites.get_site");
   } finally {
     await mock.close();
   }

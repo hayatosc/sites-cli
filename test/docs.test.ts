@@ -9,13 +9,12 @@ test("docs search reads the bundled manual from any working directory", async ()
   const result = await runCli(["docs", "search", "custom domain"], { cwd });
   assert.equal(result.code, 0, result.stderr);
   const body = JSON.parse(result.stdout);
-  assert.ok(body.data.results.length > 0);
-  assert.ok(body.data.results.some((hit: { file: string }) => hit.file === "operations.md"));
+  assert.ok(body.data.length > 0);
+  assert.ok(body.data.some((hit: { file: string }) => hit.file === "operations.md"));
   assert.ok(
-    body.data.results.some((hit: { heading: string }) =>
-      hit.heading.toLowerCase().includes("custom domain"),
-    ),
+    body.data.some((hit: { title: string }) => hit.title.toLowerCase().includes("custom domain")),
   );
+  assert.match(body.data[0].url, /^https:\/\/github\.com\/hayatosc\/sites-cli\/blob\/main\/docs\//);
 });
 
 test("docs search finds deploy flags without a docs directory", async () => {
@@ -23,9 +22,9 @@ test("docs search finds deploy flags without a docs directory", async () => {
   const result = await runCli(["docs", "search", "dry-run"], { cwd });
   assert.equal(result.code, 0, result.stderr);
   const body = JSON.parse(result.stdout);
-  assert.ok(body.data.results.length > 0);
+  assert.ok(body.data.length > 0);
   assert.ok(
-    body.data.results.some((hit: { excerpt: string }) => hit.excerpt.includes("--dry-run")),
+    body.data.some((hit: { description: string }) => hit.description.includes("--dry-run")),
   );
 });
 

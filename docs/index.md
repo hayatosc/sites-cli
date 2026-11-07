@@ -34,6 +34,8 @@ npx @hayatosc/sites auth whoami --check
 
 `--check` connects to the MCP server and verifies both authentication and connectivity.
 
+`whoami` follows the `cf` CLI shape: it reports `authenticated`, `authSource`, `tokenValid`, `accountId`, `expiresAt`, and `refreshTokenPresent`. Without credentials it still succeeds with `authenticated: false` and `error: "Not logged in"`, so scripts can branch on the result. `--check` is the exception: it needs valid credentials because it contacts MCP.
+
 ## First deployment
 
 ```sh
@@ -61,7 +63,9 @@ The default output is JSON, which is suitable for scripts and agents.
 }
 ```
 
-Use `--human` for human-readable output. Progress, warnings, and diagnostics go to stderr; `--quiet` suppresses progress. Errors return `ok: false` plus `error.code`, `error.message`, and `error.hint`.
+Use `--human` for human-readable output. Progress, warnings, and diagnostics go to stderr; `--quiet` suppresses progress, and `--quiet=false` restores it. Errors return `ok: false` plus `error.code`, `error.message`, and `error.hint`.
+
+`cli search` and `docs search` put their result arrays directly in `data`, and `schema` puts a tool object there, matching the shape of the equivalent `cf` commands.
 
 ## Exit codes
 
@@ -78,15 +82,17 @@ Use `--human` for human-readable output. Progress, warnings, and diagnostics go 
 
 ## Searching the manual
 
-`sites docs search` searches the manual bundled into the CLI. It does not read a `docs/` directory or use the network.
+`sites docs search` searches the manual bundled into the CLI. It does not read a `docs/` directory or use the network. It returns up to five `{title, description, url, file, line}` results; `url` points at the matching section of the GitHub-hosted manual.
 
 ```sh
 npx @hayatosc/sites docs search "custom domain"
 npx @hayatosc/sites docs search "dry-run"
 ```
 
-Use `sites cli search` to find commands by task.
+Use `sites cli search` to find commands by task. It returns up to five `{command, summary}` results, ranked with the same MiniSearch configuration as `cf cli search`. Keep queries anonymous: describe the action and resource type, not names, domains, IDs, or tokens.
 
 ```sh
 npx @hayatosc/sites cli search "environment variables"
 ```
+
+Both searches are advertised in `--help` when the CLI detects an agent harness. After choosing a command, run `sites <command> --help` for its flags. `sites schema --list` lists MCP tools, and `sites schema <tool>` prints one tool's input schema.

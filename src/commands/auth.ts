@@ -1,14 +1,39 @@
 // `sites auth whoami` (plan §4).
+//
+// The shape follows the cf CLI: an unauthenticated invocation is a successful
+// result that reports `authenticated: false`, rather than an error.
 
+import { isExpired } from "../auth.ts";
+import type { Identity } from "../auth.ts";
+import { CliError } from "../errors.ts";
 import type { CommandResult, DefineCommand } from "../types.ts";
-import { formatJst } from "../util.ts";
+import { displayPath, formatJst } from "../util.ts";
 
 interface WhoamiData {
-  source: string;
-  account_id: string | null;
-  expires_at: string | null;
-  refresh_token_present: boolean;
+  authenticated: boolean;
+  authSource: string;
+  tokenValid: boolean;
+  accountId: string | null;
+  expiresAt: string | null;
+  refreshTokenPresent: boolean;
+  error?: string;
   server?: { name?: string; version?: string };
+}
+
+function authSource(identity: Identity): string {
+  if (identity.source === "SITES_ACCESS_TOKEN") return "SITES_ACCESS_TOKEN";
+  return `Codex auth file (${identity.path ? displayPath(identity.path) : identity.source})`;
+}
+
+function describe(identity: Identity): WhoamiData {
+  return {
+    authenticated: true,
+    authSource: authSource(identity),
+    tokenValid: !isExpired(identity, 0),
+    accountId: identity.accountId,
+    expiresAt: identity.expiresAt ? new Date(identity.expiresAt).toISOString() : null,
+    refreshTokenPresent: identity.refreshTokenPresent,
+  };
 }
 
 export function registerAuthCommands(define: DefineCommand): void {
@@ -19,13 +44,32 @@ export function registerAuthCommands(define: DefineCommand): void {
     summary: "Show the authentication source and status",
     usage: "sites auth whoami [--check]",
     run: async (ctx): Promise<CommandResult<WhoamiData>> => {
-      const identity = ctx.getIdentity();
-      const data: WhoamiData = {
-        source: identity.source,
-        account_id: identity.accountId,
-        expires_at: identity.expiresAt ? new Date(identity.expiresAt).toISOString() : null,
-        refresh_token_present: identity.refreshTokenPresent,
-      };
+      let identity: Identity;
+      try {
+        identity = ctx.getIdentity();
+      } catch (error) {
+        if (ctx.options.check || !(error instanceof CliError) || error.exitCode !== 3) {
+          throw error;
+        }
+        const data: WhoamiData = {
+          authenticated: false,
+          authSource: "none",
+          tokenValid: false,
+          accountId: null,
+          expiresAt: null,
+          refreshTokenPresent: false,
+          error: "Not logged in",
+        };
+        return {
+          data,
+          human: (value) => {
+            ctx.stdout.write(`${value.error}\n`);
+            ctx.stdout.write("Run `codex login` to sign in.\n");
+          },
+        };
+      }
+
+      const data = describe(identity);
       if (ctx.options.check) {
         const { serverInfo } = await ctx.mcp().initialize();
         data.server = { name: serverInfo?.name, version: serverInfo?.version };
@@ -33,12 +77,17 @@ export function registerAuthCommands(define: DefineCommand): void {
       return {
         data,
         human: (value) => {
-          const shared = value.source.includes("auth.json") ? "（Codex CLI と共通）" : "";
+          if (!value.authenticated) {
+            ctx.stdout.write(`${value.error}\n`);
+            return;
+          }
           const lines = [
-            `認証: ${value.source}${shared}`,
-            `有効期限: ${formatJst(value.expires_at)}`,
+            `Authenticated: ${value.tokenValid ? "yes" : "no (expired)"}`,
+            `Auth source: ${value.authSource}`,
+            `Account: ${value.accountId ?? "unknown"}`,
+            `Expires: ${formatJst(value.expiresAt)}`,
           ];
-          if (value.server) lines.push(`サーバ: ${value.server.name} ${value.server.version}`);
+          if (value.server) lines.push(`Server: ${value.server.name} ${value.server.version}`);
           ctx.stdout.write(lines.join("\n") + "\n");
         },
       };

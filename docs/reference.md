@@ -8,7 +8,7 @@ Global flags may appear before or after a command.
 | ------------------ | ------------------------------- |
 | `--json`           | JSON output (default)           |
 | `--human`          | Human-readable output           |
-| `-q`, `--quiet`    | Suppress progress output        |
+| `-q`, `--quiet`    | Suppress progress output (`--quiet=false` re-enables) |
 | `--profile <name>` | Profile to use                  |
 | `--no-color`       | Disable color                   |
 | `-y`, `--yes`      | Skip confirmation               |
@@ -21,7 +21,7 @@ Color is also disabled when `NO_COLOR` is set.
 
 | Command                                              | Description                              |
 | ---------------------------------------------------- | ---------------------------------------- |
-| `auth whoami [--check]`                              | Show identity and check connectivity     |
+| `auth whoami [--check]`                              | Show cf-style identity status            |
 | `init [dir] --template static\|worker-esm`           | Create a project scaffold                |
 | `create <slug>`                                      | Create a site and save its ID            |
 | `list`                                               | List sites                               |
@@ -49,9 +49,10 @@ Color is also disabled when `NO_COLOR` is set.
 | `open [project\|slug]`                               | Open the site in a browser               |
 | `delete [project\|slug]`                             | Delete a site                            |
 | `doctor`                                             | Diagnose the environment and connection  |
-| `cli search <query>`                                 | Search commands                          |
+| `cli search <query>`                                 | Rank up to five commands by intent       |
 | `docs search <query>`                                | Search this manual                       |
-| `schema [tool]`                                      | Print MCP tool input schemas             |
+| `schema <tool>`                                      | Print an MCP tool input schema           |
+| `schema --list`                                      | List MCP tools and descriptions          |
 
 Run `sites <command> --help` for the flags of a command.
 
@@ -72,6 +73,14 @@ Run `sites <command> --help` for the flags of a command.
 
 Normal usage does not require any of these variables.
 
+## Search and schema output
+
+`cli search` returns up to five `{command, summary}` objects. Commands include the `sites` prefix, so a result can be run as printed. The ranking uses MiniSearch with prefix matching, fuzzy matching, and boosted command and summary fields, matching the `cf` CLI.
+
+`docs search` returns up to five `{title, description, url, file, line}` objects. `url` points at the matching section in the GitHub-hosted manual; searches run entirely against the manual bundled into the CLI.
+
+`schema <tool>` returns the MCP tool's `{name, description, inputSchema}` object. `schema --list` returns `{name, description}` entries. An unknown or missing tool name is an error, as in `cf schema`.
+
 ## State file
 
 `.sites/state.json` is managed by the CLI and should not be edited. Tags created by `deploy --tag` are stored there.
@@ -84,3 +93,5 @@ Normal usage does not require any of these variables.
 - A 401 response requires a forced refresh.
 
 Writes use a temporary file and rename, and the result is mode `0600`. The `auth_mode`, `OPENAI_API_KEY`, and `tokens.account_id` fields are preserved.
+
+`auth whoami` follows `cf auth whoami`: it reports `authenticated`, `authSource`, `tokenValid`, `accountId`, `expiresAt`, and `refreshTokenPresent`. Without credentials it succeeds with `authenticated: false` and `error: "Not logged in"`; `--check` requires working credentials because it connects to MCP.
