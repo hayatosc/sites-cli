@@ -1,6 +1,6 @@
-// Stage 4: versions, env, access, domains, analytics, open/delete, doctor, search.
+// Versions, environment, access, domains, analytics, open/delete, doctor, and search.
 
-import test from "node:test";
+import { test } from "vite-plus/test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -8,11 +8,14 @@ import { createMockMcp, runCli, tempDir } from "./helpers/index.ts";
 import type { MockCall, MockResponse } from "./helpers/index.ts";
 
 function project(): string {
-  const root = tempDir("sites-stage4-");
+  const root = tempDir("sites-site-management-");
   fs.mkdirSync(path.join(root, ".openai"), { recursive: true });
   fs.writeFileSync(
     path.join(root, ".openai/hosting.json"),
-    JSON.stringify({ project_id: "appgprj_1", static: { directory: "dist", not_found_handling: "404-page" } }),
+    JSON.stringify({
+      project_id: "appgprj_1",
+      static: { directory: "dist", not_found_handling: "404-page" },
+    }),
   );
   return root;
 }
@@ -36,14 +39,18 @@ test("versions list and rollback use the recorded access mode", async () => {
         ],
       });
     }
-    if (call.name === "sites.get_site") return structured({ id: "appgprj_1", access_mode: "custom" });
+    if (call.name === "sites.get_site")
+      return structured({ id: "appgprj_1", access_mode: "custom" });
     if (call.name === "sites.deploy_private_site_version") {
       return structured({ id: "dep_1", status: "pending", url: null });
     }
     return undefined;
   });
   try {
-    const listed = await runCli(["versions", "list"], { cwd: root, env: { SITES_MCP_URL: mock.url } });
+    const listed = await runCli(["versions", "list"], {
+      cwd: root,
+      env: { SITES_MCP_URL: mock.url },
+    });
     assert.equal(listed.code, 0, listed.stderr);
     assert.equal(JSON.parse(listed.stdout).data.items.length, 2);
 
@@ -76,7 +83,10 @@ test("env get refuses secrets and pull writes a 0600 file", async () => {
     return undefined;
   });
   try {
-    const secret = await runCli(["env", "get", "TOKEN"], { cwd: root, env: { SITES_MCP_URL: mock.url } });
+    const secret = await runCli(["env", "get", "TOKEN"], {
+      cwd: root,
+      env: { SITES_MCP_URL: mock.url },
+    });
     assert.equal(secret.code, 5);
     assert.match(secret.stderr, /ENV_SECRET_NOT_READABLE/);
 
@@ -138,7 +148,9 @@ test("domains add prints DNS instructions", async () => {
         status: "pending",
         cname_target: "custom-domains.chatgpt.site.",
         apex_proxy_ipv4_targets: ["162.159.143.30"],
-        validation_records: [{ record_type: "TXT", name: "_openai-site-verification.www", value: "abc" }],
+        validation_records: [
+          { record_type: "TXT", name: "_openai-site-verification.www", value: "abc" },
+        ],
       });
     }
     return undefined;
@@ -205,14 +217,18 @@ test("delete requires --yes and clears project_id", async () => {
   const root = project();
   const mock = await createMockMcp((call) => {
     if (call.name === "sites.get_site") return structured({ id: "appgprj_1", slug: "demo" });
-    if (call.name === "sites.delete_site") return structured({ project_id: "appgprj_1", was_deleted: true });
+    if (call.name === "sites.delete_site")
+      return structured({ project_id: "appgprj_1", was_deleted: true });
     return undefined;
   });
   try {
     const refused = await runCli(["delete"], { cwd: root, env: { SITES_MCP_URL: mock.url } });
     assert.equal(refused.code, 2);
 
-    const deleted = await runCli(["delete", "--yes"], { cwd: root, env: { SITES_MCP_URL: mock.url } });
+    const deleted = await runCli(["delete", "--yes"], {
+      cwd: root,
+      env: { SITES_MCP_URL: mock.url },
+    });
     assert.equal(deleted.code, 0, deleted.stderr);
     const manifest = JSON.parse(fs.readFileSync(path.join(root, ".openai/hosting.json"), "utf8"));
     assert.equal(manifest.project_id, null);
@@ -236,7 +252,10 @@ test("doctor --offline reports local checks without the API", async () => {
 test("doctor reports failures with exit 1", async () => {
   const root = tempDir("sites-doctor-");
   fs.mkdirSync(path.join(root, ".openai"), { recursive: true });
-  fs.writeFileSync(path.join(root, ".openai/hosting.json"), JSON.stringify({ project_id: "appgprj_1", unknown: true }));
+  fs.writeFileSync(
+    path.join(root, ".openai/hosting.json"),
+    JSON.stringify({ project_id: "appgprj_1", unknown: true }),
+  );
   const result = await runCli(["doctor", "--offline"], { cwd: root });
   assert.equal(result.code, 1);
   assert.ok(JSON.parse(result.stdout).data.failures > 0);
@@ -258,7 +277,11 @@ test("schema lists and filters MCP tools", async () => {
       return {
         result: {
           tools: [
-            { name: "sites.list_sites", description: "List sites", inputSchema: { type: "object" } },
+            {
+              name: "sites.list_sites",
+              description: "List sites",
+              inputSchema: { type: "object" },
+            },
             { name: "sites.get_site", description: "Get a site", inputSchema: { type: "object" } },
           ],
         },

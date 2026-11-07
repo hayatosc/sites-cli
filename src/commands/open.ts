@@ -9,7 +9,8 @@ import { CliError, EXIT } from "../errors.ts";
 import { stringOption } from "../util.ts";
 
 function siteUrl(site: SiteRecord): string | null {
-  const candidate = site.url ?? site.current_live_url ?? site.expected_url ?? site.current_preview_url;
+  const candidate =
+    site.url ?? site.current_live_url ?? site.expected_url ?? site.current_preview_url;
   return candidate ?? null;
 }
 
@@ -46,10 +47,14 @@ interface OpenData {
 function confirmDelete(ctx: CommandContext, label: string): Promise<boolean> {
   if (ctx.yes) return Promise.resolve(true);
   if (!process.stdin.isTTY) {
-    throw new CliError("CONFIRM_REQUIRED", "Deleting a site requires --yes in a non-interactive shell.", {
-      exitCode: EXIT.USAGE,
-      hint: "Re-run with --yes to delete the site.",
-    });
+    throw new CliError(
+      "CONFIRM_REQUIRED",
+      "Deleting a site requires --yes in a non-interactive shell.",
+      {
+        exitCode: EXIT.USAGE,
+        hint: "Re-run with --yes to delete the site.",
+      },
+    );
   }
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
@@ -69,7 +74,9 @@ export function registerOpenDeleteCommands(define: DefineCommand): void {
     usage: "sites open [<project_id|slug>] [--path /foo] [--print]",
     run: async (ctx): Promise<CommandResult<OpenData>> => {
       const projectId = await resolveProjectRef(ctx.positionals[0], ctx.mcp(), ctx.root);
-      const site = await ctx.mcp().callTool<SiteRecord>("sites.get_site", { project_id: projectId });
+      const site = await ctx
+        .mcp()
+        .callTool<SiteRecord>("sites.get_site", { project_id: projectId });
       const base = siteUrl(site);
       if (!base) {
         throw new CliError("NOT_FOUND_URL", "The site has no URL yet.", {
@@ -98,14 +105,17 @@ export function registerOpenDeleteCommands(define: DefineCommand): void {
     usage: "sites delete [<project_id|slug>] [--yes]",
     run: async (ctx): Promise<CommandResult<{ project_id: string; was_deleted: boolean }>> => {
       const projectId = await resolveProjectRef(ctx.positionals[0], ctx.mcp(), ctx.root);
-      const site = await ctx.mcp().callTool<SiteRecord>("sites.get_site", { project_id: projectId });
+      const site = await ctx
+        .mcp()
+        .callTool<SiteRecord>("sites.get_site", { project_id: projectId });
       if (!(await confirmDelete(ctx, site.slug ?? projectId))) {
         throw new CliError("CANCELLED", "Delete cancelled.", { exitCode: EXIT.INTERRUPT });
       }
-      const result = await ctx.mcp().callTool<{ project_id?: string; was_deleted?: boolean }>(
-        "sites.delete_site",
-        { project_id: projectId },
-      );
+      const result = await ctx
+        .mcp()
+        .callTool<{ project_id?: string; was_deleted?: boolean }>("sites.delete_site", {
+          project_id: projectId,
+        });
       try {
         const manifest = readManifest(ctx.root).manifest;
         if (manifest.project_id === projectId) {
@@ -115,7 +125,10 @@ export function registerOpenDeleteCommands(define: DefineCommand): void {
         // No local manifest: nothing to clear.
       }
       return {
-        data: { project_id: result.project_id ?? projectId, was_deleted: Boolean(result.was_deleted) },
+        data: {
+          project_id: result.project_id ?? projectId,
+          was_deleted: Boolean(result.was_deleted),
+        },
         human: (value) => {
           ctx.stdout.write(`${value.project_id} を削除しました。\n`);
         },

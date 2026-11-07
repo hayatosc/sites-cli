@@ -1,6 +1,6 @@
-// Stage 1 integration tests: foundation, auth, MCP, list/info.
+// CLI core integration tests: foundation, auth, MCP, list/info.
 
-import { test } from "node:test";
+import { test } from "vite-plus/test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -18,9 +18,11 @@ import { decodeJwtExpiry } from "../src/auth.ts";
 import { readManifest, writeManifest, writeState, readState } from "../src/manifest.ts";
 
 test("parseSse joins multi-line data and ignores comments", () => {
-  const events = parseSse(": ping\nevent: message\ndata: {\"a\":1,\ndata: \"b\":2}\n\ndata: second\n\n");
+  const events = parseSse(
+    ': ping\nevent: message\ndata: {"a":1,\ndata: "b":2}\n\ndata: second\n\n',
+  );
   assert.equal(events.length, 2);
-  assert.equal(events[0], "{\"a\":1,\n\"b\":2}");
+  assert.equal(events[0], '{"a":1,\n"b":2}');
   assert.equal(events[1], "second");
 });
 
@@ -77,7 +79,9 @@ test("usage errors exit 2 with JSON by default", async () => {
 });
 
 test("auth whoami uses SITES_ACCESS_TOKEN", async () => {
-  const result = await runCli(["auth", "whoami"], { env: { SITES_ACCESS_TOKEN: fakeJwt(Date.now() + 3600_000) } });
+  const result = await runCli(["auth", "whoami"], {
+    env: { SITES_ACCESS_TOKEN: fakeJwt(Date.now() + 3600_000) },
+  });
   assert.equal(result.code, 0);
   const body = JSON.parse(result.stdout);
   assert.equal(body.ok, true);
@@ -107,7 +111,11 @@ test("auth whoami reads the Codex file and reports the source", async () => {
   const authFile = path.join(dir, "auth.json");
   writeAuthFile(authFile, {
     auth_mode: "chatgpt",
-    tokens: { access_token: fakeJwt(Date.now() + 3600_000), account_id: "acct_1", refresh_token: "r" },
+    tokens: {
+      access_token: fakeJwt(Date.now() + 3600_000),
+      account_id: "acct_1",
+      refresh_token: "r",
+    },
   });
   const result = await runCli(["auth", "whoami"], {
     env: { SITES_ACCESS_TOKEN: undefined, SITES_AUTH_PATH: authFile },
@@ -126,7 +134,12 @@ test("expired token refreshes, rotates, and writes back atomically", async () =>
   writeAuthFile(authFile, {
     auth_mode: "chatgpt",
     OPENAI_API_KEY: "sk-keep-me",
-    tokens: { access_token: oldToken, refresh_token: "old-refresh", account_id: "acct_1", id_token: "id-1" },
+    tokens: {
+      access_token: oldToken,
+      refresh_token: "old-refresh",
+      account_id: "acct_1",
+      id_token: "id-1",
+    },
   });
   const auth = await createMockAuth(() => ({
     json: { access_token: newToken, refresh_token: "new-refresh", expires_in: 3600 },
@@ -170,7 +183,9 @@ test("401 triggers one forced refresh and retries", async () => {
   writeAuthFile(authFile, {
     tokens: { access_token: oldToken, refresh_token: "old-refresh", account_id: "acct_1" },
   });
-  const auth = await createMockAuth(() => ({ json: { access_token: newToken, refresh_token: "new-refresh" } }));
+  const auth = await createMockAuth(() => ({
+    json: { access_token: newToken, refresh_token: "new-refresh" },
+  }));
   let toolCalls = 0;
   const mcp = await createMockMcp((call) => {
     if (call.method !== "tools/call") return undefined;
@@ -215,21 +230,30 @@ test("expired token from SITES_ACCESS_TOKEN exits 3 without refresh", async () =
 
 test("list prints items and follows cursor with --all", async () => {
   const pages = [
-    { items: [{ id: "appgprj_1", slug: "one", access_mode: "custom", updated_at: "2026-01-01" }], cursor: "c1" },
+    {
+      items: [{ id: "appgprj_1", slug: "one", access_mode: "custom", updated_at: "2026-01-01" }],
+      cursor: "c1",
+    },
     { items: [{ id: "appgprj_2", slug: "two", access_mode: "public" }], cursor: null },
   ];
   let index = 0;
-  const mcp = await createMockMcp((call) => {
-    if (call.name !== "sites.list_sites") return undefined;
-    const page = pages[Math.min(index, pages.length - 1)];
-    index += 1;
-    return { result: { structuredContent: page } };
-  }, { sseDefault: false });
+  const mcp = await createMockMcp(
+    (call) => {
+      if (call.name !== "sites.list_sites") return undefined;
+      const page = pages[Math.min(index, pages.length - 1)];
+      index += 1;
+      return { result: { structuredContent: page } };
+    },
+    { sseDefault: false },
+  );
   try {
     const result = await runCli(["list", "--all"], { env: { SITES_MCP_URL: mcp.url } });
     assert.equal(result.code, 0, result.stderr);
     const body = JSON.parse(result.stdout);
-    assert.deepEqual(body.data.items.map((item: { slug: string }) => item.slug), ["one", "two"]);
+    assert.deepEqual(
+      body.data.items.map((item: { slug: string }) => item.slug),
+      ["one", "two"],
+    );
     assert.equal(mcp.calls.length, 2);
     assert.equal(mcp.calls[0].args?.limit, 100);
     assert.equal(mcp.calls[1].args?.cursor, "c1");
@@ -267,10 +291,16 @@ test("info resolves a project_id from the manifest", async () => {
       };
     }
     if (call.name === "sites.list_site_versions") {
-      return { result: { structuredContent: { items: [{ id: "appgprj_abc~appgver_1", version_number: 1 }] } } };
+      return {
+        result: {
+          structuredContent: { items: [{ id: "appgprj_abc~appgver_1", version_number: 1 }] },
+        },
+      };
     }
     if (call.name === "sites.list_custom_domains") {
-      return { result: { structuredContent: { items: [{ hostname: "example.com", status: "active" }] } } };
+      return {
+        result: { structuredContent: { items: [{ hostname: "example.com", status: "active" }] } },
+      };
     }
     return undefined;
   });
@@ -283,7 +313,10 @@ test("info resolves a project_id from the manifest", async () => {
     assert.equal(body.data.latest_version_number, 1);
     assert.equal(body.data.custom_domains[0].hostname, "example.com");
     assert.deepEqual(
-      mcp.calls.filter((call) => call.method === "tools/call").map((call) => call.name).sort(),
+      mcp.calls
+        .filter((call) => call.method === "tools/call")
+        .map((call) => call.name ?? "")
+        .sort((left, right) => left.localeCompare(right)),
       ["sites.get_site", "sites.list_custom_domains", "sites.list_site_versions"],
     );
   } finally {
@@ -294,10 +327,14 @@ test("info resolves a project_id from the manifest", async () => {
 test("info accepts a slug and resolves it through list_sites", async () => {
   const mcp = await createMockMcp((call) => {
     if (call.name === "sites.list_sites") {
-      return { result: { structuredContent: { items: [{ id: "appgprj_slug", slug: "my-site" }] } } };
+      return {
+        result: { structuredContent: { items: [{ id: "appgprj_slug", slug: "my-site" }] } },
+      };
     }
     if (call.name === "sites.get_site") {
-      return { result: { structuredContent: { id: "appgprj_slug", slug: "my-site", title: "Mine" } } };
+      return {
+        result: { structuredContent: { id: "appgprj_slug", slug: "my-site", title: "Mine" } },
+      };
     }
     return { result: { structuredContent: { items: [] } } };
   });
@@ -386,7 +423,11 @@ test("network failures exit 4", async () => {
 test("human output renders a table", async () => {
   const mcp = await createMockMcp((call) => {
     if (call.name === "sites.list_sites") {
-      return { result: { structuredContent: { items: [{ id: "appgprj_1", slug: "one", access_mode: "custom" }] } } };
+      return {
+        result: {
+          structuredContent: { items: [{ id: "appgprj_1", slug: "one", access_mode: "custom" }] },
+        },
+      };
     }
     return undefined;
   });
@@ -419,7 +460,10 @@ test("McpClient rejects an unexpected server", async () => {
       },
       { url: mcp.url, env: {} },
     );
-    await assert.rejects(client.initialize(), (error: { code?: string }) => error.code === "AUTH_SERVER_MISMATCH");
+    await assert.rejects(
+      client.initialize(),
+      (error: { code?: string }) => error.code === "AUTH_SERVER_MISMATCH",
+    );
   } finally {
     await mcp.close();
   }

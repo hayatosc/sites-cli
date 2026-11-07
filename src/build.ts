@@ -20,12 +20,17 @@ function detectPackageManager(root: string): string {
   if (pkg.packageManager) return pkg.packageManager.split("@")[0];
   if (fs.existsSync(path.join(root, "pnpm-lock.yaml"))) return "pnpm";
   if (fs.existsSync(path.join(root, "yarn.lock"))) return "yarn";
-  if (fs.existsSync(path.join(root, "bun.lock")) || fs.existsSync(path.join(root, "bun.lockb"))) return "bun";
+  if (fs.existsSync(path.join(root, "bun.lock")) || fs.existsSync(path.join(root, "bun.lockb")))
+    return "bun";
   if (fs.existsSync(path.join(root, "aube-lock.yaml"))) return "aube";
   return "npm";
 }
 
-async function runBuildScript(root: string, env: Env, log: (text: string) => void): Promise<string> {
+async function runBuildScript(
+  root: string,
+  env: Env,
+  log: (text: string) => void,
+): Promise<string> {
   const manager = detectPackageManager(root);
   const command = `${manager} run build`;
   log(`running ${command}`);
@@ -68,7 +73,9 @@ export async function buildSite(options: {
   let buildScript: string | undefined;
   if (fs.existsSync(packageFile)) {
     try {
-      const pkg = JSON.parse(fs.readFileSync(packageFile, "utf8")) as { scripts?: Record<string, string> };
+      const pkg = JSON.parse(fs.readFileSync(packageFile, "utf8")) as {
+        scripts?: Record<string, string>;
+      };
       buildScript = pkg.scripts?.build;
     } catch {
       throw new CliError("PREFLIGHT_INVALID_PACKAGE", "package.json is not valid JSON.", {

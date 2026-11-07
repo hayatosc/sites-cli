@@ -41,7 +41,11 @@ export function manifestPath(root = process.cwd()): string {
   return path.join(root, MANIFEST_DIR, MANIFEST_NAME);
 }
 
-export function readManifest(root = process.cwd()): { manifest: Manifest; raw: string; file: string } {
+export function readManifest(root = process.cwd()): {
+  manifest: Manifest;
+  raw: string;
+  file: string;
+} {
   const file = manifestPath(root);
   let raw: string;
   try {

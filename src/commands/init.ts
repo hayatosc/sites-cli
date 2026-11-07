@@ -83,7 +83,9 @@ export function registerInitCommands(define: DefineCommand): void {
     usage: "sites init [dir] [--template static|worker-esm] [--force] [--no-git]",
     async run(ctx: CommandContext): Promise<CommandResult<InitData>> {
       const target = ctx.positionals[0] ? path.resolve(ctx.root, ctx.positionals[0]) : ctx.root;
-      const template = (typeof ctx.options.template === "string" ? ctx.options.template : "static") as Template;
+      const template = (
+        typeof ctx.options.template === "string" ? ctx.options.template : "static"
+      ) as Template;
       if (!TEMPLATES.includes(template)) {
         throw new CliError("USAGE_INVALID_VALUE", `Unknown template: ${template}`, {
           exitCode: EXIT.USAGE,
@@ -113,26 +115,31 @@ export function registerInitCommands(define: DefineCommand): void {
       } else {
         writeIfAllowed(path.join(target, "worker", "index.js"), WORKER_INDEX, force, files);
       }
-      writeIfAllowed(
-        path.join(target, "scripts", "build.mjs"),
-        BUILD_SCRIPT,
-        force,
-        files,
-      );
+      writeIfAllowed(path.join(target, "scripts", "build.mjs"), BUILD_SCRIPT, force, files);
       writeIfAllowed(
         path.join(target, "package.json"),
         `${JSON.stringify({ private: true, type: "module", scripts: { build: `node scripts/build.mjs ${template}` } }, null, 2)}\n`,
         force,
         files,
       );
-      writeIfAllowed(path.join(target, ".gitignore"), "dist/\n.sites/\nnode_modules/\n", force, files);
+      writeIfAllowed(
+        path.join(target, ".gitignore"),
+        "dist/\n.sites/\nnode_modules/\n",
+        force,
+        files,
+      );
 
       let gitInitialized = false;
       if (!ctx.options["no-git"]) {
         if (await gitAvailable()) {
-          const result = await git(["init", "--initial-branch", "main"], { cwd: target, env: ctx.env, allowFailure: true });
+          const result = await git(["init", "--initial-branch", "main"], {
+            cwd: target,
+            env: ctx.env,
+            allowFailure: true,
+          });
           gitInitialized = result.code === 0;
-          if (!gitInitialized) ctx.stderr.write(`warning: git init failed; continuing without a repository\n`);
+          if (!gitInitialized)
+            ctx.stderr.write(`warning: git init failed; continuing without a repository\n`);
         } else {
           ctx.stderr.write("warning: git is not installed; continuing without a repository\n");
         }

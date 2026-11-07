@@ -22,7 +22,6 @@ export interface MainOptions {
   stderr?: OutputStream;
 }
 
-
 export async function main(
   argv: string[] = process.argv.slice(2),
   options: MainOptions = {},
@@ -38,9 +37,10 @@ export async function main(
   try {
     parsed = parseCli(argv, commands);
   } catch (error) {
-    const cliError = error instanceof CliError
-      ? error
-      : new CliError("INTERNAL_ERROR", (error as Error).message, { exitCode: EXIT.GENERAL });
+    const cliError =
+      error instanceof CliError
+        ? error
+        : new CliError("INTERNAL_ERROR", (error as Error).message, { exitCode: EXIT.GENERAL });
     printError(cliError, {
       json: !isHumanRequested(argv),
       stderr,
@@ -106,11 +106,12 @@ export async function main(
     }
     return result.exitCode ?? EXIT.OK;
   } catch (error) {
-    const cliError = error instanceof CliError
-      ? error
-      : new CliError("INTERNAL_ERROR", (error as Error).message ?? String(error), {
-          exitCode: EXIT.GENERAL,
-        });
+    const cliError =
+      error instanceof CliError
+        ? error
+        : new CliError("INTERNAL_ERROR", (error as Error).message ?? String(error), {
+            exitCode: EXIT.GENERAL,
+          });
     printError(cliError, { json, stderr, color });
     return cliError.exitCode;
   }
@@ -118,7 +119,10 @@ export async function main(
 
 const isMain = (() => {
   try {
-    return Boolean(process.argv[1]) && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1]);
+    return (
+      Boolean(process.argv[1]) &&
+      fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])
+    );
   } catch {
     return false;
   }
@@ -131,7 +135,7 @@ if (isMain) {
       process.exit(EXIT.INTERRUPT);
     });
   }
-  main().then((code) => {
+  void main().then((code) => {
     process.exitCode = code;
   });
 }

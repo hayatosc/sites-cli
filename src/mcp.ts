@@ -4,7 +4,7 @@ import { CliError, EXIT } from "./errors.ts";
 import type { Identity } from "./auth.ts";
 import { ensureFresh } from "./auth.ts";
 import type { Env } from "./types.ts";
-import { redact, sleep } from "./util.ts";
+import { redact, sleep, textValue } from "./util.ts";
 
 export const DEFAULT_MCP_URL = "https://chatgpt.com/backend-api/ps/mcp";
 export const VERSION = "0.1.0";
@@ -61,7 +61,8 @@ export function parseSse(text: string): string[] {
 function parseMcpBody(text: string, contentType: string | null): ParsedBody {
   const trimmed = text.trim();
   if (!trimmed) return { json: null };
-  const looksLikeSse = (contentType ?? "").includes("text/event-stream") || /^(event|data):/.test(trimmed);
+  const looksLikeSse =
+    (contentType ?? "").includes("text/event-stream") || /^(event|data):/.test(trimmed);
   if (!looksLikeSse) {
     try {
       return { json: JSON.parse(trimmed) };
@@ -84,8 +85,11 @@ function errorFromToolResult(result: ToolResult, toolName: string): CliError {
   const structured = result.structuredContent ?? {};
   const textItem = (result.content ?? []).find((item) => item?.type === "text");
   const rawMessage = structured.error ?? textItem?.text ?? `Tool ${toolName} failed`;
-  const message = String(rawMessage).replace(/^SitesConnectorError:\s*/, "");
-  const errorCode = String(structured.error_code ?? "TOOL_ERROR");
+  const message = textValue(rawMessage, `Tool ${toolName} failed`).replace(
+    /^SitesConnectorError:\s*/,
+    "",
+  );
+  const errorCode = textValue(structured.error_code, "TOOL_ERROR");
   const errorData = (structured.error_data ?? {}) as { type?: string; code?: number };
 
   let exitCode: number = EXIT.GENERAL;
@@ -97,7 +101,11 @@ function errorFromToolResult(result: ToolResult, toolName: string): CliError {
     exitCode = EXIT.USAGE;
   } else if (errorCode === "NOT_FOUND") {
     exitCode = EXIT.PREFLIGHT;
-  } else if (errorCode === "UNAUTHENTICATED" || errorCode === "UNAUTHORIZED" || errorData.code === 401) {
+  } else if (
+    errorCode === "UNAUTHENTICATED" ||
+    errorCode === "UNAUTHORIZED" ||
+    errorData.code === 401
+  ) {
     exitCode = EXIT.AUTH;
     code = "AUTH_UNAUTHORIZED";
   } else if (errorCode === "RATE_LIMITED" || errorCode === "INTERNAL") {
@@ -130,11 +138,18 @@ function unwrapToolResult(result: ToolResult | undefined): unknown {
 }
 
 function isNetworkRetryable(error: unknown): boolean {
-  const code = (error as { code?: string; cause?: { code?: string } }).code ??
+  const code =
+    (error as { code?: string; cause?: { code?: string } }).code ??
     (error as { cause?: { code?: string } }).cause?.code;
   return (
-    ["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ENOTFOUND", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET"].includes(code ?? "") ||
-    (error as Error).name === "TimeoutError"
+    [
+      "ECONNRESET",
+      "ETIMEDOUT",
+      "EAI_AGAIN",
+      "ENOTFOUND",
+      "UND_ERR_CONNECT_TIMEOUT",
+      "UND_ERR_SOCKET",
+    ].includes(code ?? "") || (error as Error).name === "TimeoutError"
   );
 }
 
@@ -191,10 +206,14 @@ export class McpClient {
           await sleep(this.retryBaseMs * 2 ** attempt);
           continue;
         }
-        throw new CliError("NETWORK_ERROR", `Could not reach the Sites API: ${(error as Error).message}`, {
-          exitCode: EXIT.NETWORK,
-          hint: "Check the network connection and retry.",
-        });
+        throw new CliError(
+          "NETWORK_ERROR",
+          `Could not reach the Sites API: ${(error as Error).message}`,
+          {
+            exitCode: EXIT.NETWORK,
+            hint: "Check the network connection and retry.",
+          },
+        );
       }
 
       this.requestId = response.headers.get("x-request-id") ?? this.requestId;
@@ -211,9 +230,10 @@ export class McpClient {
         const retryAfter = Number(response.headers.get("retry-after"));
         await response.text().catch(() => "");
         if (attempt < this.retries) {
-          const delay = Number.isFinite(retryAfter) && retryAfter > 0
-            ? retryAfter * 1000
-            : this.retryBaseMs * 2 ** attempt;
+          const delay =
+            Number.isFinite(retryAfter) && retryAfter > 0
+              ? retryAfter * 1000
+              : this.retryBaseMs * 2 ** attempt;
           await sleep(delay);
           continue;
         }
@@ -222,9 +242,10 @@ export class McpClient {
           `Sites API returned HTTP ${response.status} after ${this.retries} retries.`,
           {
             exitCode: EXIT.NETWORK,
-            hint: response.status === 429
-              ? "Wait a moment and retry."
-              : "Retry later; the service may be temporarily unavailable.",
+            hint:
+              response.status === 429
+                ? "Wait a moment and retry."
+                : "Retry later; the service may be temporarily unavailable.",
           },
         );
       }
@@ -232,10 +253,14 @@ export class McpClient {
       if (!response.ok) {
         const text = await response.text().catch(() => "");
         const authFailure = response.status === 401 || response.status === 403;
-        throw new CliError(authFailure ? "AUTH_UNAUTHORIZED" : "HTTP_ERROR", `Sites API returned HTTP ${response.status}.`, {
-          exitCode: authFailure ? EXIT.AUTH : EXIT.NETWORK,
-          details: text ? { body: redact(text, [identity.token]).slice(0, 1000) } : undefined,
-        });
+        throw new CliError(
+          authFailure ? "AUTH_UNAUTHORIZED" : "HTTP_ERROR",
+          `Sites API returned HTTP ${response.status}.`,
+          {
+            exitCode: authFailure ? EXIT.AUTH : EXIT.NETWORK,
+            details: text ? { body: redact(text, [identity.token]).slice(0, 1000) } : undefined,
+          },
+        );
       }
 
       const text = await response.text();
@@ -252,41 +277,61 @@ export class McpClient {
       }
       if (message.error) {
         const rpcError = message.error as { message?: string; code?: number };
-        throw new CliError("MCP_ERROR", rpcError.message ?? "The Sites API returned a JSON-RPC error.", {
-          exitCode: EXIT.NETWORK,
-          details: { jsonrpc_code: rpcError.code },
-        });
+        throw new CliError(
+          "MCP_ERROR",
+          rpcError.message ?? "The Sites API returned a JSON-RPC error.",
+          {
+            exitCode: EXIT.NETWORK,
+            details: { jsonrpc_code: rpcError.code },
+          },
+        );
       }
       return message.result;
     }
   }
 
-  async initialize(): Promise<{ protocolVersion?: string; serverInfo?: { name?: string; version?: string } }> {
+  async initialize(): Promise<{
+    protocolVersion?: string;
+    serverInfo?: { name?: string; version?: string };
+  }> {
     const result = (await this.post("initialize", {
       protocolVersion: "2025-03-26",
       capabilities: {},
       clientInfo: { name: "sites-cli", version: VERSION },
-    })) as { protocolVersion?: string; serverInfo?: { name?: string; version?: string } } | undefined;
+    })) as
+      | { protocolVersion?: string; serverInfo?: { name?: string; version?: string } }
+      | undefined;
 
     const serverInfo = result?.serverInfo;
     if (serverInfo && serverInfo.name !== "plugin-runtime") {
-      throw new CliError("AUTH_SERVER_MISMATCH", `Unexpected MCP server: ${serverInfo.name ?? "unknown"}`, {
-        exitCode: EXIT.NETWORK,
-        hint: "The Sites endpoint may have changed; check for a CLI update.",
-      });
+      throw new CliError(
+        "AUTH_SERVER_MISMATCH",
+        `Unexpected MCP server: ${serverInfo.name ?? "unknown"}`,
+        {
+          exitCode: EXIT.NETWORK,
+          hint: "The Sites endpoint may have changed; check for a CLI update.",
+        },
+      );
     }
     return { protocolVersion: result?.protocolVersion, serverInfo };
   }
 
   async listTools(): Promise<Array<{ name: string; description?: string; inputSchema?: unknown }>> {
-    const result = (await this.post("tools/list", {})) as {
-      tools?: Array<{ name: string; description?: string; inputSchema?: unknown }>;
-    } | undefined;
+    const result = (await this.post("tools/list", {})) as
+      | {
+          tools?: Array<{ name: string; description?: string; inputSchema?: unknown }>;
+        }
+      | undefined;
     return result?.tools ?? [];
   }
 
-  async callTool<T = Record<string, unknown>>(name: string, args: Record<string, unknown> = {}): Promise<T> {
-    const result = (await this.post("tools/call", { name, arguments: args })) as ToolResult | undefined;
+  async callTool<T = Record<string, unknown>>(
+    name: string,
+    args: Record<string, unknown> = {},
+  ): Promise<T> {
+    const result = (await this.post("tools/call", { name, arguments: args })) as
+      | ToolResult
+      | undefined;
     if (result?.isError) throw errorFromToolResult(result, name);
     return unwrapToolResult(result) as T;
   }

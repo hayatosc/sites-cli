@@ -29,26 +29,26 @@ npx @hayatosc/sites open
 
 ## コマンド
 
-| コマンド | 説明 |
-| --- | --- |
-| `sites init [dir] --template static\|worker-esm` | プロジェクトの雛形を作成 |
-| `sites create <slug>` | サイトを作成して `project_id` を保存 |
-| `sites list` | サイト一覧 |
-| `sites info [project\|slug]` | サイトの詳細 |
-| `sites deploy` | ビルドしてデプロイ |
-| `sites status [deployment_id]` | デプロイ状態 (`--watch` で待機) |
-| `sites logs` | Worker ログ (`--follow` で追跡) |
-| `sites versions list\|show\|rollback` | バージョン一覧・詳細・切り戻し |
-| `sites env list\|get\|set\|unset\|pull\|push` | 環境変数 |
-| `sites access show\|set` | 公開範囲 |
-| `sites domains add\|list\|refresh\|remove` | カスタムドメイン |
-| `sites analytics summary\|events` | アクセス解析 |
-| `sites open` | ブラウザで開く (`--print` で URL のみ) |
-| `sites delete --yes` | サイトを削除 |
-| `sites doctor` | ローカル環境と接続の診断 |
-| `sites cli search <query>` | コマンドの検索 |
-| `sites docs search <query>` | 同梱ドキュメントの検索 |
-| `sites schema [tool]` | MCP ツールの入力スキーマ |
+| コマンド                                         | 説明                                   |
+| ------------------------------------------------ | -------------------------------------- |
+| `sites init [dir] --template static\|worker-esm` | プロジェクトの雛形を作成               |
+| `sites create <slug>`                            | サイトを作成して `project_id` を保存   |
+| `sites list`                                     | サイト一覧                             |
+| `sites info [project\|slug]`                     | サイトの詳細                           |
+| `sites deploy`                                   | ビルドしてデプロイ                     |
+| `sites status [deployment_id]`                   | デプロイ状態 (`--watch` で待機)        |
+| `sites logs`                                     | Worker ログ (`--follow` で追跡)        |
+| `sites versions list\|show\|rollback`            | バージョン一覧・詳細・切り戻し         |
+| `sites env list\|get\|set\|unset\|pull\|push`    | 環境変数                               |
+| `sites access show\|set`                         | 公開範囲                               |
+| `sites domains add\|list\|refresh\|remove`       | カスタムドメイン                       |
+| `sites analytics summary\|events`                | アクセス解析                           |
+| `sites open`                                     | ブラウザで開く (`--print` で URL のみ) |
+| `sites delete --yes`                             | サイトを削除                           |
+| `sites doctor`                                   | ローカル環境と接続の診断               |
+| `sites cli search <query>`                       | コマンドの検索                         |
+| `sites docs search <query>`                      | 同梱ドキュメントの検索                 |
+| `sites schema [tool]`                            | MCP ツールの入力スキーマ               |
 
 各コマンドのフラグは `sites <command> --help` で確認できます。
 
@@ -56,16 +56,16 @@ npx @hayatosc/sites open
 
 既定の出力は JSON です。`--human` を付けると人間向けの表示になります。進捗や警告は stderr に流れ、`--quiet` で抑制できます。
 
-| コード | 意味 |
-| --- | --- |
-| 0 | 成功 |
-| 1 | 一般エラー、デプロイ失敗 |
-| 2 | 引数の誤り |
-| 3 | 認証エラー |
-| 4 | 通信エラー、タイムアウト |
-| 5 | 事前検査の失敗 |
-| 6 | 競合 (slug 重複、ソース変更など) |
-| 130 | 中断 |
+| コード | 意味                             |
+| ------ | -------------------------------- |
+| 0      | 成功                             |
+| 1      | 一般エラー、デプロイ失敗         |
+| 2      | 引数の誤り                       |
+| 3      | 認証エラー                       |
+| 4      | 通信エラー、タイムアウト         |
+| 5      | 事前検査の失敗                   |
+| 6      | 競合 (slug 重複、ソース変更など) |
+| 130    | 中断                             |
 
 ## wrangler からの変換
 
@@ -75,9 +75,9 @@ npx @hayatosc/sites open
 
 ```sh
 ni
-nlx tsc --noEmit
-node --test
-node scripts/build.mjs
+nlx vp check
+nlx vp test
+nlx vp pack
 ```
 
-`dist/cli.mjs` が実行ファイルです。
+`dist/cli.mjs` が実行ファイルです。ビルド・テスト・lint・整形・型チェックは Vite+ (`vp`) に統一しています。

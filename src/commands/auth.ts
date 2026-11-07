@@ -34,7 +34,10 @@ export function registerAuthCommands(define: DefineCommand): void {
         data,
         human: (value) => {
           const shared = value.source.includes("auth.json") ? "（Codex CLI と共通）" : "";
-          const lines = [`認証: ${value.source}${shared}`, `有効期限: ${formatJst(value.expires_at)}`];
+          const lines = [
+            `認証: ${value.source}${shared}`,
+            `有効期限: ${formatJst(value.expires_at)}`,
+          ];
           if (value.server) lines.push(`サーバ: ${value.server.name} ${value.server.version}`);
           ctx.stdout.write(lines.join("\n") + "\n");
         },

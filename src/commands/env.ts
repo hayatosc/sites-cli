@@ -66,7 +66,9 @@ function parseEnvFile(root: string, file: string): Array<{ key: string; value: s
   try {
     raw = fs.readFileSync(absolute, "utf8");
   } catch {
-    throw new CliError("PREFLIGHT_ENV_FILE", `Cannot read env file: ${file}`, { exitCode: EXIT.PREFLIGHT });
+    throw new CliError("PREFLIGHT_ENV_FILE", `Cannot read env file: ${file}`, {
+      exitCode: EXIT.PREFLIGHT,
+    });
   }
   const entries: Array<{ key: string; value: string }> = [];
   for (const line of raw.split("\n")) {
@@ -91,9 +93,14 @@ function parseEnvFile(root: string, file: string): Array<{ key: string; value: s
 }
 
 function table(ctx: CommandContext, header: string[], rows: string[][]): void {
-  const widths = header.map((cell, index) => Math.max(cell.length, ...rows.map((row) => row[index].length)));
+  const widths = header.map((cell, index) =>
+    Math.max(cell.length, ...rows.map((row) => row[index].length)),
+  );
   const render = (row: string[]): string =>
-    row.map((cell, index) => cell.padEnd(widths[index])).join("  ").trimEnd();
+    row
+      .map((cell, index) => cell.padEnd(widths[index]))
+      .join("  ")
+      .trimEnd();
   ctx.stdout.write([render(header), ...rows.map(render)].join("\n") + "\n");
 }
 
@@ -157,10 +164,14 @@ export function registerEnvCommands(define: DefineCommand): void {
         });
       }
       if (entry.is_secret) {
-        throw new CliError("ENV_SECRET_NOT_READABLE", `${key} is a secret and cannot be read back.`, {
-          exitCode: EXIT.PREFLIGHT,
-          hint: "Secrets are write-only; set a new value with `sites env set KEY=VALUE --secret`.",
-        });
+        throw new CliError(
+          "ENV_SECRET_NOT_READABLE",
+          `${key} is a secret and cannot be read back.`,
+          {
+            exitCode: EXIT.PREFLIGHT,
+            hint: "Secrets are write-only; set a new value with `sites env set KEY=VALUE --secret`.",
+          },
+        );
       }
       return {
         data: {
@@ -238,7 +249,11 @@ export function registerEnvCommands(define: DefineCommand): void {
     positionals: { min: 0, max: 0 },
     summary: "Write environment variables to a .env file",
     usage: "sites env pull [--out .env]",
-    run: async (ctx): Promise<CommandResult<{ project_id: string; out: string; keys: string[]; secrets_skipped: number }>> => {
+    run: async (
+      ctx,
+    ): Promise<
+      CommandResult<{ project_id: string; out: string; keys: string[]; secrets_skipped: number }>
+    > => {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const environment = await ctx.mcp().callTool<EnvironmentResult>("sites.get_environment", {
         project_id: projectId,
@@ -271,7 +286,9 @@ export function registerEnvCommands(define: DefineCommand): void {
         human: (value) => {
           ctx.stdout.write(`${value.out} に ${value.keys.length} 件を書き出しました。\n`);
           if (value.secrets_skipped) {
-            ctx.stdout.write(`秘密値 ${value.secrets_skipped} 件は読み戻せないためコメントとして残しました。\n`);
+            ctx.stdout.write(
+              `秘密値 ${value.secrets_skipped} 件は読み戻せないためコメントとして残しました。\n`,
+            );
           }
         },
       };
@@ -284,7 +301,9 @@ export function registerEnvCommands(define: DefineCommand): void {
     positionals: { min: 0, max: 0 },
     summary: "Upload variables from a .env file",
     usage: "sites env push [--env-file .env] [--dry-run]",
-    run: async (ctx): Promise<CommandResult<{ project_id: string; keys: string[]; dry_run: boolean }>> => {
+    run: async (
+      ctx,
+    ): Promise<CommandResult<{ project_id: string; keys: string[]; dry_run: boolean }>> => {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const file = stringOption(ctx.options, "env-file") ?? ".env";
       const entries = parseEnvFile(ctx.root, file);
@@ -301,7 +320,9 @@ export function registerEnvCommands(define: DefineCommand): void {
           if (value.dry_run) {
             ctx.stdout.write(`dry-run: ${value.keys.length} 件を送信します。\n`);
           } else {
-            ctx.stdout.write(`${value.keys.length} 件を設定しました。次のデプロイで反映されます。\n`);
+            ctx.stdout.write(
+              `${value.keys.length} 件を設定しました。次のデプロイで反映されます。\n`,
+            );
           }
         },
       };

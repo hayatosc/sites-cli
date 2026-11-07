@@ -21,10 +21,12 @@ function messageOf(record: DeploymentRecord): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-export async function pollDeployment(ctx: CommandContext, options: PollOptions): Promise<DeploymentRecord> {
+export async function pollDeployment(
+  ctx: CommandContext,
+  options: PollOptions,
+): Promise<DeploymentRecord> {
   const deadline = Date.now() + options.timeoutSeconds * 1000;
   const interval = Math.max(250, (options.intervalSeconds ?? 2) * 1000);
-  let last: DeploymentRecord | null = null;
   let lastStatus: string | null = null;
 
   for (;;) {
@@ -32,7 +34,6 @@ export async function pollDeployment(ctx: CommandContext, options: PollOptions):
       project_id: options.projectId,
       deployment_id: options.deploymentId,
     });
-    last = record;
     const status = record.status ?? "unknown";
     if (status !== lastStatus) {
       options.log?.(status);
@@ -47,11 +48,15 @@ export async function pollDeployment(ctx: CommandContext, options: PollOptions):
       });
     }
     if (Date.now() >= deadline) {
-      throw new CliError("DEPLOY_TIMEOUT", `Deployment did not finish within ${options.timeoutSeconds}s.`, {
-        exitCode: EXIT.NETWORK,
-        hint: `Run \`sites status ${options.deploymentId}\` to keep checking.`,
-        details: { status, deployment_id: options.deploymentId },
-      });
+      throw new CliError(
+        "DEPLOY_TIMEOUT",
+        `Deployment did not finish within ${options.timeoutSeconds}s.`,
+        {
+          exitCode: EXIT.NETWORK,
+          hint: `Run \`sites status ${options.deploymentId}\` to keep checking.`,
+          details: { status, deployment_id: options.deploymentId },
+        },
+      );
     }
     await sleep(interval);
   }

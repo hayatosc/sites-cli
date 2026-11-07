@@ -1,7 +1,12 @@
 // `sites versions` (plan §4).
 
 import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
-import type { DeploymentRecord, ListVersionsResult, SiteRecord, SiteVersionRecord } from "../api-types.ts";
+import type {
+  DeploymentRecord,
+  ListVersionsResult,
+  SiteRecord,
+  SiteVersionRecord,
+} from "../api-types.ts";
 import { resolveProjectRef } from "../manifest.ts";
 import { CliError, EXIT, usageError } from "../errors.ts";
 import { integerOption } from "../args.ts";
@@ -46,9 +51,14 @@ function summarize(version: SiteVersionRecord): VersionSummary {
 }
 
 function table(ctx: CommandContext, header: string[], rows: string[][]): void {
-  const widths = header.map((cell, index) => Math.max(cell.length, ...rows.map((row) => row[index].length)));
+  const widths = header.map((cell, index) =>
+    Math.max(cell.length, ...rows.map((row) => row[index].length)),
+  );
   const render = (row: string[]): string =>
-    row.map((cell, index) => cell.padEnd(widths[index])).join("  ").trimEnd();
+    row
+      .map((cell, index) => cell.padEnd(widths[index]))
+      .join("  ")
+      .trimEnd();
   ctx.stdout.write([render(header), ...rows.map(render)].join("\n") + "\n");
 }
 
@@ -142,7 +152,10 @@ export function registerVersionCommands(define: DefineCommand): void {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       let versionId = ctx.positionals[0];
       if (ctx.options.previous && versionId) {
-        throw usageError("USAGE_UNEXPECTED_ARGUMENT", "Pass either a version_id or --previous, not both.");
+        throw usageError(
+          "USAGE_UNEXPECTED_ARGUMENT",
+          "Pass either a version_id or --previous, not both.",
+        );
       }
       if (ctx.options.previous) {
         const versions = await ctx.mcp().callTool<ListVersionsResult>("sites.list_site_versions", {
@@ -162,9 +175,12 @@ export function registerVersionCommands(define: DefineCommand): void {
           hint: "Run `sites versions list` to find a version.",
         });
       }
-      const site = await ctx.mcp().callTool<SiteRecord>("sites.get_site", { project_id: projectId });
+      const site = await ctx
+        .mcp()
+        .callTool<SiteRecord>("sites.get_site", { project_id: projectId });
       const accessMode = site.access_mode ?? "custom";
-      const tool = accessMode === "custom" ? "sites.deploy_private_site_version" : "sites.deploy_site_version";
+      const tool =
+        accessMode === "custom" ? "sites.deploy_private_site_version" : "sites.deploy_site_version";
       const deployment = await ctx.mcp().callTool<DeploymentRecord>(tool, {
         project_id: projectId,
         version_id: versionId,

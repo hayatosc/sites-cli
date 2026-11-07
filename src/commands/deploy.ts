@@ -42,7 +42,7 @@ function requireProject(ctx: CommandContext): string {
   return manifest.project_id;
 }
 
-function toStatus(record: DeploymentRecord, projectId: string): StatusData {
+function toStatus(record: DeploymentRecord): StatusData {
   return {
     deployment_id: (record.id ?? record.deployment_id ?? "") as string,
     status: record.status ?? "unknown",
@@ -62,7 +62,9 @@ function parseSince(value: string): number {
   }
   const amount = Number(match[1]);
   if (!Number.isFinite(amount) || amount <= 0) {
-    throw new CliError("USAGE_INVALID_VALUE", `Invalid --since value: ${value}`, { exitCode: EXIT.USAGE });
+    throw new CliError("USAGE_INVALID_VALUE", `Invalid --since value: ${value}`, {
+      exitCode: EXIT.USAGE,
+    });
   }
   if (match[2] === "m") return amount;
   if (match[2] === "h") return amount * 60;
@@ -94,7 +96,8 @@ export function registerDeployCommands(define: DefineCommand): void {
     ],
     positionals: { min: 0, max: 0 },
     summary: "Build, upload, and deploy the current site",
-    usage: "sites deploy [--dry-run] [--message <text>] [--private|--public|--workspace] [--timeout 300]",
+    usage:
+      "sites deploy [--dry-run] [--message <text>] [--private|--public|--workspace] [--timeout 300]",
     run: async (ctx): Promise<CommandResult<Awaited<ReturnType<typeof runDeploy>>>> => {
       const data = await runDeploy(ctx);
       return {
@@ -141,7 +144,6 @@ export function registerDeployCommands(define: DefineCommand): void {
           project_id: projectId,
           deployment_id: deploymentId,
         }),
-        projectId,
       );
       while (watch && ACTIVE.has(current.status)) {
         if (Date.now() >= deadline) {
@@ -157,7 +159,6 @@ export function registerDeployCommands(define: DefineCommand): void {
             project_id: projectId,
             deployment_id: deploymentId,
           }),
-          projectId,
         );
       }
       const failed = current.status === "failed" || current.status === "error";
@@ -182,7 +183,9 @@ export function registerDeployCommands(define: DefineCommand): void {
     usage: "sites logs [--since 30m] [--limit 100] [--errors-only|--all] [--follow]",
     run: async (ctx): Promise<CommandResult<LogsData>> => {
       const projectId = requireProject(ctx);
-      const sinceMinutes = parseSince(typeof ctx.options.since === "string" ? ctx.options.since : "30m");
+      const sinceMinutes = parseSince(
+        typeof ctx.options.since === "string" ? ctx.options.since : "30m",
+      );
       const limit = integerOption(ctx.options, "limit", { min: 1, max: 1000, fallback: 100 });
       const errorsOnly = Boolean(ctx.options["errors-only"]) && !ctx.options.all;
       const follow = Boolean(ctx.options.follow);
@@ -203,7 +206,9 @@ export function registerDeployCommands(define: DefineCommand): void {
           seen.add(key);
           events.push(event);
           if (!ctx.json) {
-            ctx.stdout.write(`${event.timestamp ?? "-"} ${event.level ?? "info"} ${messageOf(event)}\n`);
+            ctx.stdout.write(
+              `${event.timestamp ?? "-"} ${event.level ?? "info"} ${messageOf(event)}\n`,
+            );
           }
         }
       };

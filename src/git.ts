@@ -31,7 +31,14 @@ export interface GitOptions {
   timeoutMs?: number;
 }
 
-const SAFE_OPTIONS = ["-c", "credential.helper=", "-c", "http.extraHeader=", "-c", "http.followRedirects=false"];
+const SAFE_OPTIONS = [
+  "-c",
+  "credential.helper=",
+  "-c",
+  "http.extraHeader=",
+  "-c",
+  "http.followRedirects=false",
+];
 
 function gitEnv(env: Env, token?: string): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {};
@@ -95,7 +102,10 @@ export async function gitAvailable(): Promise<boolean> {
 
 export async function isInsideGitRepo(root: string): Promise<boolean> {
   try {
-    const result = await git(["rev-parse", "--is-inside-work-tree"], { cwd: root, allowFailure: true });
+    const result = await git(["rev-parse", "--is-inside-work-tree"], {
+      cwd: root,
+      allowFailure: true,
+    });
     return result.stdout.trim() === "true";
   } catch {
     return false;
@@ -123,9 +133,13 @@ export function assertHttpsRemote(remoteUrl: string, env: Env = process.env as E
   try {
     url = new URL(remoteUrl);
   } catch {
-    throw new CliError("PREFLIGHT_INVALID_SOURCE_URL", `Invalid source repository URL: ${remoteUrl}`, {
-      exitCode: EXIT.PREFLIGHT,
-    });
+    throw new CliError(
+      "PREFLIGHT_INVALID_SOURCE_URL",
+      `Invalid source repository URL: ${remoteUrl}`,
+      {
+        exitCode: EXIT.PREFLIGHT,
+      },
+    );
   }
   const insecureAllowed = env.SITES_ALLOW_INSECURE_GIT === "1";
   if (url.protocol !== "https:" && !(insecureAllowed && url.protocol === "file:")) {
@@ -135,19 +149,23 @@ export function assertHttpsRemote(remoteUrl: string, env: Env = process.env as E
     });
   }
   if (url.username || url.password) {
-    throw new CliError("PREFLIGHT_INVALID_SOURCE_URL", "The source repository URL must not contain credentials.", {
-      exitCode: EXIT.PREFLIGHT,
-    });
+    throw new CliError(
+      "PREFLIGHT_INVALID_SOURCE_URL",
+      "The source repository URL must not contain credentials.",
+      {
+        exitCode: EXIT.PREFLIGHT,
+      },
+    );
   }
 }
 
 /** Copies the project working tree into a temporary directory (excluding build output). */
 async function projectFiles(root: string): Promise<string[]> {
   if (await isInsideGitRepo(root)) {
-    const result = await git(
-      ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-      { cwd: root, allowFailure: false },
-    );
+    const result = await git(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+      cwd: root,
+      allowFailure: false,
+    });
     return result.stdout.split("\0").filter((file) => file && fs.existsSync(path.join(root, file)));
   }
   const files: string[] = [];
@@ -240,7 +258,10 @@ export async function syncSource(options: SourceSyncOptions): Promise<SourceSync
     if (hasChanges || !remoteSha) {
       await git([...identity, "commit", "-m", options.message], { cwd: temp, allowFailure: false });
     } else {
-      await git([...identity, "commit", "--allow-empty", "-m", options.message], { cwd: temp, allowFailure: false });
+      await git([...identity, "commit", "--allow-empty", "-m", options.message], {
+        cwd: temp,
+        allowFailure: false,
+      });
     }
 
     const head = await git(["rev-parse", "HEAD"], { cwd: temp, allowFailure: false });
@@ -291,10 +312,22 @@ export async function syncSource(options: SourceSyncOptions): Promise<SourceSync
 
 /** Creates an empty source commit so save_site_version does not deduplicate. */
 export async function emptyCommit(root: string, message: string): Promise<string> {
-  await git(["-c", "user.name=sites", "-c", "user.email=sites@localhost", "commit", "--allow-empty", "-m", message], {
-    cwd: root,
-    allowFailure: false,
-  });
+  await git(
+    [
+      "-c",
+      "user.name=sites",
+      "-c",
+      "user.email=sites@localhost",
+      "commit",
+      "--allow-empty",
+      "-m",
+      message,
+    ],
+    {
+      cwd: root,
+      allowFailure: false,
+    },
+  );
   return (await currentHead(root)) ?? "";
 }
 

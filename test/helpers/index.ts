@@ -23,7 +23,10 @@ export interface MockResponse {
   headers?: Record<string, string>;
 }
 
-export type MockHandler = (call: MockCall, index: number) => MockResponse | undefined | Promise<MockResponse | undefined>;
+export type MockHandler = (
+  call: MockCall,
+  index: number,
+) => MockResponse | undefined | Promise<MockResponse | undefined>;
 
 export interface MockMcp {
   url: string;
@@ -31,14 +34,21 @@ export interface MockMcp {
   close: () => Promise<void>;
 }
 
-export async function createMockMcp(handler?: MockHandler, options: { sseDefault?: boolean } = {}): Promise<MockMcp> {
+export async function createMockMcp(
+  handler?: MockHandler,
+  options: { sseDefault?: boolean } = {},
+): Promise<MockMcp> {
   const calls: MockCall[] = [];
   const sseDefault = options.sseDefault ?? true;
 
   const server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
-    let payload: { id?: number | string; method?: string; params?: { name?: string; arguments?: Record<string, unknown> } } = {};
+    let payload: {
+      id?: number | string;
+      method?: string;
+      params?: { name?: string; arguments?: Record<string, unknown> };
+    } = {};
     try {
       payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     } catch {
@@ -55,9 +65,15 @@ export async function createMockMcp(handler?: MockHandler, options: { sseDefault
 
     let response = await handler?.(call, index);
     if (!response) {
-      response = payload.method === "initialize"
-        ? { result: { protocolVersion: "2025-03-26", serverInfo: { name: "plugin-runtime", version: "0.1.0" } } }
-        : { result: { structuredContent: {}, content: [] } };
+      response =
+        payload.method === "initialize"
+          ? {
+              result: {
+                protocolVersion: "2025-03-26",
+                serverInfo: { name: "plugin-runtime", version: "0.1.0" },
+              },
+            }
+          : { result: { structuredContent: {}, content: [] } };
     }
     if (response.status && response.status !== 200) {
       res.writeHead(response.status, response.headers ?? {});
@@ -65,16 +81,20 @@ export async function createMockMcp(handler?: MockHandler, options: { sseDefault
       return;
     }
     if (response.body !== undefined) {
-      res.writeHead(200, { "content-type": "text/plain", ...(response.headers ?? {}) });
+      res.writeHead(200, { "content-type": "text/plain", ...response.headers });
       res.end(response.body);
       return;
     }
-    const message = JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: response.result ?? {} });
+    const message = JSON.stringify({
+      jsonrpc: "2.0",
+      id: payload.id,
+      result: response.result ?? {},
+    });
     if (response.sse ?? sseDefault) {
-      res.writeHead(200, { "content-type": "text/event-stream", ...(response.headers ?? {}) });
+      res.writeHead(200, { "content-type": "text/event-stream", ...response.headers });
       res.end(`event: message\ndata: ${message}\n\n`);
     } else {
-      res.writeHead(200, { "content-type": "application/json", ...(response.headers ?? {}) });
+      res.writeHead(200, { "content-type": "application/json", ...response.headers });
       res.end(message);
     }
   });
@@ -123,7 +143,12 @@ export async function runCli(
   const err = new Collector();
   out.isTTY = options.tty ?? false;
   err.isTTY = options.tty ?? false;
-  const code = await main(args, { env, cwd: options.cwd ?? process.cwd(), stdout: out, stderr: err });
+  const code = await main(args, {
+    env,
+    cwd: options.cwd ?? process.cwd(),
+    stdout: out,
+    stderr: err,
+  });
   return { code, stdout: out.text, stderr: err.text, out, err };
 }
 
@@ -133,7 +158,9 @@ export function tempDir(prefix = "sites-test-"): string {
 
 export function fakeJwt(expMs: number, extra: Record<string, unknown> = {}): string {
   const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(JSON.stringify({ exp: Math.floor(expMs / 1000), ...extra })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ exp: Math.floor(expMs / 1000), ...extra })).toString(
+    "base64url",
+  );
   return `${header}.${payload}.signature`;
 }
 

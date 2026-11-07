@@ -7,7 +7,7 @@ import type { DeploymentRecord, SiteRecord } from "../api-types.ts";
 import { authFilePath, decodeJwtExpiry } from "../auth.ts";
 import { inspectDist } from "../package-site.ts";
 import { findWranglerConfig } from "../wrangler.ts";
-import { manifestPath, readManifest, readState } from "../manifest.ts";
+import { readManifest, readState } from "../manifest.ts";
 import { CliError } from "../errors.ts";
 import { currentHead, dirtyFiles, git, gitAvailable, isInsideGitRepo } from "../git.ts";
 
@@ -27,9 +27,27 @@ interface DoctorData {
   offline: boolean;
 }
 
-const MANIFEST_KEYS = new Set(["project_id", "static", "d1", "r2", "capabilities", "plugins", "connectors"]);
+const MANIFEST_KEYS = new Set([
+  "project_id",
+  "static",
+  "d1",
+  "r2",
+  "capabilities",
+  "plugins",
+  "connectors",
+]);
 const STATIC_KEYS = new Set(["directory", "not_found_handling"]);
-const UNSUPPORTED_WRANGLER = ["kv_namespaces", "durable_objects", "queues", "services", "hyperdrive", "vectorize", "ai", "browser", "rules"];
+const UNSUPPORTED_WRANGLER = [
+  "kv_namespaces",
+  "durable_objects",
+  "queues",
+  "services",
+  "hyperdrive",
+  "vectorize",
+  "ai",
+  "browser",
+  "rules",
+];
 
 function check(id: number, name: string, status: CheckStatus, detail: string): DoctorCheck {
   return { id, name, status, detail };
@@ -77,12 +95,19 @@ async function checkAuth(env: Record<string, string | undefined>): Promise<Docto
     return check(2, "Codex auth", "fail", `${file} does not exist.`);
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as { tokens?: { access_token?: string } };
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      tokens?: { access_token?: string };
+    };
     const token = parsed.tokens?.access_token;
     if (!token) return check(2, "Codex auth", "fail", "auth.json has no access token.");
     const expiry = decodeJwtExpiry(token);
     if (expiry !== null && expiry < Date.now()) {
-      return check(2, "Codex auth", "warn", "The access token is expired; it will be refreshed on demand.");
+      return check(
+        2,
+        "Codex auth",
+        "warn",
+        "The access token is expired; it will be refreshed on demand.",
+      );
     }
     return check(2, "Codex auth", "ok", `Codex credentials found at ${file}.`);
   } catch {
@@ -179,12 +204,21 @@ export function registerDoctorCommands(define: DefineCommand): void {
           inRepo = await isInsideGitRepo(ctx.root);
         }
         if (!inRepo) {
-          checks.push(check(8, "git history", "warn", "Not a git repository; source sync uses a temporary clone."));
+          checks.push(
+            check(
+              8,
+              "git history",
+              "warn",
+              "Not a git repository; source sync uses a temporary clone.",
+            ),
+          );
         } else {
           const dirty = await dirtyFiles(ctx.root);
           const head = await currentHead(ctx.root);
           const detail = `${head ? head.slice(0, 12) : "no commits"}; ${dirty.length} uncommitted file(s).`;
-          checks.push(check(8, "git history", dirty.length ? "warn" : "ok", [...fixes, detail].join(" ")));
+          checks.push(
+            check(8, "git history", dirty.length ? "warn" : "ok", [...fixes, detail].join(" ")),
+          );
         }
       } else {
         checks.push(check(8, "git history", "skip", "git is unavailable."));
@@ -194,7 +228,9 @@ export function registerDoctorCommands(define: DefineCommand): void {
       const packageFile = path.join(ctx.root, "package.json");
       if (fs.existsSync(packageFile)) {
         try {
-          const pkg = JSON.parse(fs.readFileSync(packageFile, "utf8")) as { scripts?: Record<string, string> };
+          const pkg = JSON.parse(fs.readFileSync(packageFile, "utf8")) as {
+            scripts?: Record<string, string>;
+          };
           hasBuild = Boolean(pkg.scripts?.build);
         } catch {
           hasBuild = false;
@@ -203,11 +239,19 @@ export function registerDoctorCommands(define: DefineCommand): void {
       checks.push(
         hasBuild
           ? check(10, "build script", "ok", "package.json has a build script.")
-          : check(10, "build script", "warn", "No build script; static public/ or a Worker entry is used."),
+          : check(
+              10,
+              "build script",
+              "warn",
+              "No build script; static public/ or a Worker entry is used.",
+            ),
       );
 
       const state = readState(ctx.root);
-      const recent429 = typeof state.last_rate_limited_at === "string" ? Date.parse(state.last_rate_limited_at) : NaN;
+      const recent429 =
+        typeof state.last_rate_limited_at === "string"
+          ? Date.parse(state.last_rate_limited_at)
+          : NaN;
       checks.push(
         Number.isFinite(recent429) && Date.now() - recent429 < 15 * 60 * 1000
           ? check(11, "rate limit", "warn", "A 429 was recorded in the last 15 minutes.")
@@ -222,7 +266,14 @@ export function registerDoctorCommands(define: DefineCommand): void {
         const client = ctx.mcp();
         try {
           const info = await client.initialize();
-          checks.push(check(3, "MCP connection", "ok", `server: ${info.serverInfo?.name ?? "plugin-runtime"}`));
+          checks.push(
+            check(
+              3,
+              "MCP connection",
+              "ok",
+              `server: ${info.serverInfo?.name ?? "plugin-runtime"}`,
+            ),
+          );
         } catch (error) {
           checks.push(check(3, "MCP connection", "fail", (error as Error).message));
         }
@@ -232,12 +283,19 @@ export function registerDoctorCommands(define: DefineCommand): void {
           checks.push(check(5, "project ownership", "skip", "Codex credentials are unavailable."));
         } else {
           try {
-            const site = await client.callTool<SiteRecord>("sites.get_site", { project_id: projectId });
+            const site = await client.callTool<SiteRecord>("sites.get_site", {
+              project_id: projectId,
+            });
             const remoteId = site.id ?? site.project_id;
             checks.push(
               remoteId === projectId
                 ? check(5, "project ownership", "ok", `${site.slug ?? projectId} is reachable.`)
-                : check(5, "project ownership", "fail", `API returned ${remoteId ?? "no id"}, expected ${projectId}.`),
+                : check(
+                    5,
+                    "project ownership",
+                    "fail",
+                    `API returned ${remoteId ?? "no id"}, expected ${projectId}.`,
+                  ),
             );
           } catch (error) {
             checks.push(check(5, "project ownership", "fail", (error as Error).message));
@@ -249,10 +307,13 @@ export function registerDoctorCommands(define: DefineCommand): void {
           checks.push(check(12, "deployment state", "skip", "Codex credentials are unavailable."));
         } else {
           try {
-            const deployment = await client.callTool<DeploymentRecord>("sites.get_deployment_status", {
-              project_id: projectId,
-              deployment_id: state.last_deployment_id,
-            });
+            const deployment = await client.callTool<DeploymentRecord>(
+              "sites.get_deployment_status",
+              {
+                project_id: projectId,
+                deployment_id: state.last_deployment_id,
+              },
+            );
             checks.push(
               check(
                 12,
@@ -274,8 +335,17 @@ export function registerDoctorCommands(define: DefineCommand): void {
         exitCode: failures ? 1 : 0,
         human: (value) => {
           for (const entry of value.checks) {
-            const mark = entry.status === "ok" ? "✓" : entry.status === "warn" ? "!" : entry.status === "skip" ? "-" : "✗";
-            ctx.stdout.write(`${mark} ${String(entry.id).padStart(2)} ${entry.name}: ${entry.detail}\n`);
+            const mark =
+              entry.status === "ok"
+                ? "✓"
+                : entry.status === "warn"
+                  ? "!"
+                  : entry.status === "skip"
+                    ? "-"
+                    : "✗";
+            ctx.stdout.write(
+              `${mark} ${String(entry.id).padStart(2)} ${entry.name}: ${entry.detail}\n`,
+            );
           }
           ctx.stdout.write(`${value.failures} failure(s), ${value.warnings} warning(s)\n`);
         },

@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import type { Env } from "./types.ts";
 
-export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+export const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 export function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
@@ -35,12 +36,21 @@ export function formatJst(iso: string | null | undefined): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return String(iso);
   const parts = jstFormatter.formatToParts(date);
-  const get = (type: Intl.DateTimeFormatPartTypes): string => parts.find((part) => part.type === type)?.value ?? "";
+  const get = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((part) => part.type === type)?.value ?? "";
   return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")} JST`;
 }
 
+export function textValue(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  return fallback;
+}
+
 export function redact(text: unknown, secrets: Array<string | null | undefined>): string {
-  let out = String(text ?? "");
+  let out = typeof text === "string" ? text : textValue(text) || (JSON.stringify(text) ?? "");
   for (const secret of secrets) {
     if (secret && secret.length >= 8) out = out.split(secret).join("[redacted]");
   }
@@ -62,7 +72,9 @@ export function booleanOption(options: Record<string, unknown>, name: string): b
 
 export function stringListOption(options: Record<string, unknown>, name: string): string[] {
   const value = options[name];
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 export function parseIntegerOption(

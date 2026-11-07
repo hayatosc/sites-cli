@@ -35,19 +35,27 @@ function walkDist(dist: string): Array<{ relative: string; size: number }> {
     const absolute = path.join(dist, relative);
     const stat = fs.lstatSync(absolute);
     if (stat.isSymbolicLink()) {
-      throw new CliError("PREFLIGHT_UNSUPPORTED_FILE", `Symbolic links are not allowed: ${relative}`, {
-        exitCode: EXIT.PREFLIGHT,
-        hint: "Replace the symlink with a regular file.",
-      });
+      throw new CliError(
+        "PREFLIGHT_UNSUPPORTED_FILE",
+        `Symbolic links are not allowed: ${relative}`,
+        {
+          exitCode: EXIT.PREFLIGHT,
+          hint: "Replace the symlink with a regular file.",
+        },
+      );
     }
     if (stat.isDirectory()) {
       for (const entry of fs.readdirSync(absolute)) walk(path.join(relative, entry));
       return;
     }
     if (!stat.isFile()) {
-      throw new CliError("PREFLIGHT_UNSUPPORTED_FILE", `Special files are not allowed: ${relative}`, {
-        exitCode: EXIT.PREFLIGHT,
-      });
+      throw new CliError(
+        "PREFLIGHT_UNSUPPORTED_FILE",
+        `Special files are not allowed: ${relative}`,
+        {
+          exitCode: EXIT.PREFLIGHT,
+        },
+      );
     }
     files.push({ relative: relative.split(path.sep).join("/"), size: stat.size });
   };
@@ -117,18 +125,23 @@ export function inspectDist(root: string, manifest: Manifest): DistInfo {
   if (!files.some((file) => file.relative === entryRelative)) {
     throw new CliError("PREFLIGHT_MISSING_ENTRY", `dist/${entryRelative} is missing.`, {
       exitCode: EXIT.PREFLIGHT,
-      hint: kind === "static"
-        ? "Write the static site to dist/index.html."
-        : "Write the bundled Worker to dist/server/index.js.",
+      hint:
+        kind === "static"
+          ? "Write the static site to dist/index.html."
+          : "Write the bundled Worker to dist/server/index.js.",
     });
   }
   if (kind === "worker") {
     validateWorkerEntry(path.join(dist, entryRelative), `dist/${entryRelative}`);
     if (files.some((file) => file.relative === "index.html")) {
-      throw new CliError("PREFLIGHT_INVALID_BUNDLE", "A Worker site also contains dist/index.html.", {
-        exitCode: EXIT.PREFLIGHT,
-        hint: "Remove static output or declare `static` in hosting.json.",
-      });
+      throw new CliError(
+        "PREFLIGHT_INVALID_BUNDLE",
+        "A Worker site also contains dist/index.html.",
+        {
+          exitCode: EXIT.PREFLIGHT,
+          hint: "Remove static output or declare `static` in hosting.json.",
+        },
+      );
     }
   }
 

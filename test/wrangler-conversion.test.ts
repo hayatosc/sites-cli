@@ -1,6 +1,6 @@
-// Stage 3: wrangler conversion and Rolldown bundling.
+// wrangler conversion and worker bundling.
 
-import test from "node:test";
+import { test } from "vite-plus/test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -19,10 +19,7 @@ function readJson(root: string, relative: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(path.join(root, relative), "utf8")) as Record<string, unknown>;
 }
 
-async function convert(
-  root: string,
-  allowUnsupported: string[] = [],
-) {
+async function convert(root: string, allowUnsupported: string[] = []) {
   return convertWranglerProject({ root, allowUnsupported, log: () => {} });
 }
 
@@ -57,16 +54,23 @@ test("findWranglerConfig prefers jsonc and strips comments", () => {
 
 test("static assets convert to hosting.json and dist", async () => {
   const root = tempDir("sites-convert-");
-  write(root, "wrangler.jsonc", JSON.stringify({
-    name: "My Static Site",
-    assets: { directory: "public", not_found_handling: "single-page-application" },
-  }));
+  write(
+    root,
+    "wrangler.jsonc",
+    JSON.stringify({
+      name: "My Static Site",
+      assets: { directory: "public", not_found_handling: "single-page-application" },
+    }),
+  );
   write(root, "public/index.html", "<h1>static</h1>");
   const report = await convert(root);
   assert.ok(report);
   assert.equal(report.kind, "static");
   const manifest = readJson(root, ".openai/hosting.json");
-  assert.deepEqual(manifest.static, { directory: "dist", not_found_handling: "single-page-application" });
+  assert.deepEqual(manifest.static, {
+    directory: "dist",
+    not_found_handling: "single-page-application",
+  });
   assert.equal(fs.readFileSync(path.join(root, "dist/index.html"), "utf8"), "<h1>static</h1>");
   assert.ok(report.changed.some((entry) => entry.includes('slug "my-static-site"')));
   assert.deepEqual(report.outputs, [".openai/hosting.json", "dist/"]);
@@ -74,16 +78,24 @@ test("static assets convert to hosting.json and dist", async () => {
 
 test("worker main is bundled and assets go to dist/client", async () => {
   const root = tempDir("sites-convert-");
-  write(root, "wrangler.json", JSON.stringify({
-    name: "worker-site",
-    main: "src/index.ts",
-    assets: { directory: "public", binding: "WEBSITE" },
-    d1_databases: [{ binding: "DB", database_name: "db" }],
-    r2_buckets: [{ binding: "BUCKET" }],
-    migrations_dir: "migrations",
-    triggers: { crons: ["0 * * * *"] },
-  }));
-  write(root, "src/index.ts", `import message from "./message.txt";\nexport default { async fetch() { return new Response(message); } };\n`);
+  write(
+    root,
+    "wrangler.json",
+    JSON.stringify({
+      name: "worker-site",
+      main: "src/index.ts",
+      assets: { directory: "public", binding: "WEBSITE" },
+      d1_databases: [{ binding: "DB", database_name: "db" }],
+      r2_buckets: [{ binding: "BUCKET" }],
+      migrations_dir: "migrations",
+      triggers: { crons: ["0 * * * *"] },
+    }),
+  );
+  write(
+    root,
+    "src/index.ts",
+    `import message from "./message.txt";\nexport default { async fetch() { return new Response(message); } };\n`,
+  );
   write(root, "src/message.txt", "from worker");
   write(root, "public/app.js", "console.log('asset')");
   write(root, "migrations/0001_init.sql", "create table t (id integer);");
@@ -105,11 +117,15 @@ test("worker main is bundled and assets go to dist/client", async () => {
 
 test("a converted worker passes deploy preflight and packaging", async () => {
   const root = tempDir("sites-convert-");
-  write(root, "wrangler.json", JSON.stringify({
-    name: "worker-dry-run",
-    main: "src/index.ts",
-    assets: { directory: "public" },
-  }));
+  write(
+    root,
+    "wrangler.json",
+    JSON.stringify({
+      name: "worker-dry-run",
+      main: "src/index.ts",
+      assets: { directory: "public" },
+    }),
+  );
   write(root, "src/index.ts", `export default { async fetch() { return new Response("ok"); } };\n`);
   write(root, "public/index.html", "asset");
   await convert(root);
@@ -118,7 +134,10 @@ test("a converted worker passes deploy preflight and packaging", async () => {
   fs.writeFileSync(path.join(root, ".openai/hosting.json"), JSON.stringify(manifest));
   const result = await runCli(["deploy", "--dry-run"], { cwd: root });
   assert.equal(result.code, 0);
-  const payload = JSON.parse(result.stdout) as { ok: boolean; data: { kind: string; archive: { file_count: number } } };
+  const payload = JSON.parse(result.stdout) as {
+    ok: boolean;
+    data: { kind: string; archive: { file_count: number } };
+  };
   assert.equal(payload.ok, true);
   assert.equal(payload.data.kind, "worker");
   assert.ok(payload.data.archive.file_count >= 2);
@@ -126,16 +145,23 @@ test("a converted worker passes deploy preflight and packaging", async () => {
 
 test("unsupported sections block without writing outputs", async () => {
   const root = tempDir("sites-convert-");
-  write(root, "wrangler.json", JSON.stringify({
-    name: "blocked-site",
-    assets: { directory: "public" },
-    kv_namespaces: [{ binding: "KV", id: "x" }],
-    durable_objects: { bindings: [] },
-  }));
+  write(
+    root,
+    "wrangler.json",
+    JSON.stringify({
+      name: "blocked-site",
+      assets: { directory: "public" },
+      kv_namespaces: [{ binding: "KV", id: "x" }],
+      durable_objects: { bindings: [] },
+    }),
+  );
   write(root, "public/index.html", "hello");
   await assert.rejects(
     () => convert(root),
-    (error: unknown) => error instanceof CliError && error.code === "PREFLIGHT_UNSUPPORTED_BINDING" && error.exitCode === 5,
+    (error: unknown) =>
+      error instanceof CliError &&
+      error.code === "PREFLIGHT_UNSUPPORTED_BINDING" &&
+      error.exitCode === 5,
   );
   assert.equal(fs.existsSync(path.join(root, ".openai/hosting.json")), false);
   assert.equal(fs.existsSync(path.join(root, "dist")), false);
@@ -143,15 +169,21 @@ test("unsupported sections block without writing outputs", async () => {
 
 test("--allow-unsupported demotes a blocked section to a warning", async () => {
   const root = tempDir("sites-convert-");
-  write(root, "wrangler.json", JSON.stringify({
-    name: "kv-site",
-    assets: { directory: "public" },
-    kv_namespaces: [{ binding: "KV", id: "x" }],
-  }));
+  write(
+    root,
+    "wrangler.json",
+    JSON.stringify({
+      name: "kv-site",
+      assets: { directory: "public" },
+      kv_namespaces: [{ binding: "KV", id: "x" }],
+    }),
+  );
   write(root, "public/index.html", "hello");
   const report = await convert(root, ["kv"]);
   assert.ok(report);
-  assert.ok(report.warnings.some((entry) => entry.code === "CONVERT_UNSUPPORTED_KV" && entry.demoted));
+  assert.ok(
+    report.warnings.some((entry) => entry.code === "CONVERT_UNSUPPORTED_KV" && entry.demoted),
+  );
   assert.ok(report.blocked.length > 0);
   assert.ok(fs.existsSync(path.join(root, "dist/index.html")));
 });
@@ -159,7 +191,11 @@ test("--allow-unsupported demotes a blocked section to a warning", async () => {
 test("a wasm import is blocked as unsupported", async () => {
   const root = tempDir("sites-convert-");
   write(root, "wrangler.json", JSON.stringify({ name: "wasm-site", main: "src/index.ts" }));
-  write(root, "src/index.ts", `import mod from "./mod.wasm";\nexport default { fetch() { return new Response(String(mod)); } };\n`);
+  write(
+    root,
+    "src/index.ts",
+    `import mod from "./mod.wasm";\nexport default { fetch() { return new Response(String(mod)); } };\n`,
+  );
   fs.writeFileSync(path.join(root, "src/mod.wasm"), Buffer.from([0, 97, 115, 109]));
   await assert.rejects(
     () => convert(root),
@@ -170,15 +206,20 @@ test("a wasm import is blocked as unsupported", async () => {
 
 test("more than one D1 binding is blocked", async () => {
   const root = tempDir("sites-convert-");
-  write(root, "wrangler.json", JSON.stringify({
-    name: "two-d1",
-    assets: { directory: "public" },
-    d1_databases: [{ binding: "A" }, { binding: "B" }],
-  }));
+  write(
+    root,
+    "wrangler.json",
+    JSON.stringify({
+      name: "two-d1",
+      assets: { directory: "public" },
+      d1_databases: [{ binding: "A" }, { binding: "B" }],
+    }),
+  );
   write(root, "public/index.html", "hello");
   await assert.rejects(
     () => convert(root),
     (error: unknown) =>
-      error instanceof CliError && JSON.stringify((error as CliError).details).includes("CONVERT_MULTIPLE_D1"),
+      error instanceof CliError &&
+      JSON.stringify((error as CliError).details).includes("CONVERT_MULTIPLE_D1"),
   );
 });

@@ -44,7 +44,11 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
 
 class Retryable extends Error {}
 
-async function postJson<T>(url: string, body: unknown, headers: Record<string, string>): Promise<T> {
+async function postJson<T>(
+  url: string,
+  body: unknown,
+  headers: Record<string, string>,
+): Promise<T> {
   const response = await request(url, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
@@ -81,14 +85,18 @@ export async function uploadArchive(options: {
   };
 
   const session = await withRetry(() =>
-    postJson<UploadSession>(`${apiBase(options.env)}/backend-api/files`, {
-      file_name: fileName,
-      file_size: stat.size,
-      use_case: "codex",
-      codex_connector_id: options.projectId,
-      codex_action_name: "sites_deploy",
-      codex_model: "codex",
-    }, headers),
+    postJson<UploadSession>(
+      `${apiBase(options.env)}/backend-api/files`,
+      {
+        file_name: fileName,
+        file_size: stat.size,
+        use_case: "codex",
+        codex_connector_id: options.projectId,
+        codex_action_name: "sites_deploy",
+        codex_model: "codex",
+      },
+      headers,
+    ),
   );
 
   const body = fs.readFileSync(options.archiveFile);
@@ -112,7 +120,13 @@ export async function uploadArchive(options: {
   let delay = Number.isFinite(pollMs) && pollMs > 0 ? pollMs : 250;
   for (;;) {
     const result = await withRetry(() =>
-      postJson<{ status?: string; download_url?: string; mime_type?: string; file_name?: string; file_size_bytes?: number }>(
+      postJson<{
+        status?: string;
+        download_url?: string;
+        mime_type?: string;
+        file_name?: string;
+        file_size_bytes?: number;
+      }>(
         `${apiBase(options.env)}/backend-api/files/${encodeURIComponent(session.file_id)}/uploaded`,
         {},
         headers,

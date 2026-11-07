@@ -23,7 +23,10 @@ function targetMode(ctx: CommandContext): AccessMode | null {
     ctx.options.workspace ? "workspace_all" : null,
   ].filter(Boolean) as AccessMode[];
   if (requested.length > 1) {
-    throw usageError("USAGE_CONFLICTING_FLAGS", "Choose only one of --private, --public, or --workspace.");
+    throw usageError(
+      "USAGE_CONFLICTING_FLAGS",
+      "Choose only one of --private, --public, or --workspace.",
+    );
   }
   return requested[0] ?? null;
 }
@@ -50,7 +53,9 @@ export function registerAccessCommands(define: DefineCommand): void {
     usage: "sites access show",
     run: async (ctx): Promise<CommandResult<AccessData>> => {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
-      const site = await ctx.mcp().callTool<SiteRecord>("sites.get_site", { project_id: projectId });
+      const site = await ctx
+        .mcp()
+        .callTool<SiteRecord>("sites.get_site", { project_id: projectId });
       return {
         data: toData(projectId, site),
         human: (value) => {
@@ -71,7 +76,8 @@ export function registerAccessCommands(define: DefineCommand): void {
     flags: ["private", "public", "workspace", "allow-email", "wait", "timeout"],
     positionals: { min: 0, max: 0 },
     summary: "Change the site access mode",
-    usage: "sites access set --private|--public|--workspace [--allow-email <addr>]… [--wait] [--timeout 120]",
+    usage:
+      "sites access set --private|--public|--workspace [--allow-email <addr>]… [--wait] [--timeout 120]",
     run: async (ctx): Promise<CommandResult<AccessData>> => {
       const mode = targetMode(ctx);
       if (!mode) {
@@ -81,10 +87,14 @@ export function registerAccessCommands(define: DefineCommand): void {
       }
       const emails = stringListOption(ctx.options, "allow-email");
       if (mode === "public" && emails.length) {
-        throw new CliError("USAGE_INVALID_COMBINATION", "--allow-email cannot be combined with --public.", {
-          exitCode: EXIT.PREFLIGHT,
-          hint: "Public sites are readable by anyone; remove --allow-email.",
-        });
+        throw new CliError(
+          "USAGE_INVALID_COMBINATION",
+          "--allow-email cannot be combined with --public.",
+          {
+            exitCode: EXIT.PREFLIGHT,
+            hint: "Public sites are readable by anyone; remove --allow-email.",
+          },
+        );
       }
       const timeout = integerOption(ctx.options, "timeout", { min: 1, max: 600, fallback: 120 });
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
@@ -102,10 +112,14 @@ export function registerAccessCommands(define: DefineCommand): void {
           if (site.access_mode === mode) break;
         }
         if (site.access_mode !== mode) {
-          throw new CliError("ACCESS_TIMEOUT", `Access mode is still ${site.access_mode ?? "unknown"}.`, {
-            exitCode: EXIT.NETWORK,
-            hint: "Propagation can take 40–60 seconds; retry with a longer --timeout.",
-          });
+          throw new CliError(
+            "ACCESS_TIMEOUT",
+            `Access mode is still ${site.access_mode ?? "unknown"}.`,
+            {
+              exitCode: EXIT.NETWORK,
+              hint: "Propagation can take 40–60 seconds; retry with a longer --timeout.",
+            },
+          );
         }
       }
       return {

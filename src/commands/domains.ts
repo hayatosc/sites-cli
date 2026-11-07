@@ -5,7 +5,7 @@ import type { CustomDomainRecord, ListCustomDomainsResult } from "../api-types.t
 import { resolveProjectRef } from "../manifest.ts";
 import { CliError, EXIT, usageError } from "../errors.ts";
 import { integerOption } from "../args.ts";
-import { sleep } from "../util.ts";
+import { sleep, textValue } from "../util.ts";
 
 const HOSTNAME_PATTERN = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
@@ -87,8 +87,8 @@ function domainData(projectId: string, domain: CustomDomainRecord): DomainData {
 }
 
 function renderDomainInstructions(ctx: CommandContext, value: DomainData): void {
-  const hostname = String(value.domain.hostname ?? "");
-  ctx.stdout.write(`${hostname}: ${String(value.domain.status ?? "unknown")}\n`);
+  const hostname = textValue(value.domain.hostname);
+  ctx.stdout.write(`${hostname}: ${textValue(value.domain.status, "unknown")}\n`);
   if (!value.dns) return;
   if (value.dns.cname_target) {
     ctx.stdout.write(`CNAME  ${hostname}  ${value.dns.cname_target}  (proxied)\n`);
@@ -122,16 +122,22 @@ export function registerDomainCommands(define: DefineCommand): void {
         while (Date.now() < deadline) {
           if (["active", "active_redeploying"].includes(String(domain.status))) break;
           await sleep(5000);
-          domain = await ctx.mcp().callTool<CustomDomainRecord>("sites.refresh_custom_domain_status", {
-            project_id: projectId,
-            custom_domain_id: domain.id,
-          });
+          domain = await ctx
+            .mcp()
+            .callTool<CustomDomainRecord>("sites.refresh_custom_domain_status", {
+              project_id: projectId,
+              custom_domain_id: domain.id,
+            });
         }
         if (domain.status !== "active") {
-          throw new CliError("DOMAIN_TIMEOUT", `${hostname} is still ${domain.status ?? "pending"}.`, {
-            exitCode: EXIT.NETWORK,
-            hint: "Create the DNS records, then retry `sites domains refresh <hostname> --wait`.",
-          });
+          throw new CliError(
+            "DOMAIN_TIMEOUT",
+            `${hostname} is still ${domain.status ?? "pending"}.`,
+            {
+              exitCode: EXIT.NETWORK,
+              hint: "Create the DNS records, then retry `sites domains refresh <hostname> --wait`.",
+            },
+          );
         }
       }
       const data = domainData(projectId, domain);
@@ -139,7 +145,9 @@ export function registerDomainCommands(define: DefineCommand): void {
         data,
         human: (value) => {
           renderDomainInstructions(ctx, value);
-          ctx.stdout.write("DNS レコードを作成したら `sites domains refresh <hostname>` で確認できます。\n");
+          ctx.stdout.write(
+            "DNS レコードを作成したら `sites domains refresh <hostname>` で確認できます。\n",
+          );
         },
       };
     },
@@ -153,9 +161,11 @@ export function registerDomainCommands(define: DefineCommand): void {
     usage: "sites domains list",
     run: async (ctx): Promise<CommandResult<DomainListData>> => {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
-      const listed = await ctx.mcp().callTool<ListCustomDomainsResult>("sites.list_custom_domains", {
-        project_id: projectId,
-      });
+      const listed = await ctx
+        .mcp()
+        .callTool<ListCustomDomainsResult>("sites.list_custom_domains", {
+          project_id: projectId,
+        });
       const items = listed.items ?? [];
       return {
         data: { project_id: projectId, items },
@@ -183,10 +193,12 @@ export function registerDomainCommands(define: DefineCommand): void {
     run: async (ctx): Promise<CommandResult<DomainData>> => {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const domain = await resolveDomain(ctx, projectId, ctx.positionals[0]);
-      const refreshed = await ctx.mcp().callTool<CustomDomainRecord>("sites.refresh_custom_domain_status", {
-        project_id: projectId,
-        custom_domain_id: domain.id,
-      });
+      const refreshed = await ctx
+        .mcp()
+        .callTool<CustomDomainRecord>("sites.refresh_custom_domain_status", {
+          project_id: projectId,
+          custom_domain_id: domain.id,
+        });
       return {
         data: domainData(projectId, refreshed),
         human: (value) => renderDomainInstructions(ctx, value),
@@ -200,7 +212,11 @@ export function registerDomainCommands(define: DefineCommand): void {
     positionals: { min: 1, max: 1, names: ["hostname|custom_domain_id"] },
     summary: "Remove a custom domain",
     usage: "sites domains remove <hostname|custom_domain_id>",
-    run: async (ctx): Promise<CommandResult<{ project_id: string; removed: string; domain: Record<string, unknown> }>> => {
+    run: async (
+      ctx,
+    ): Promise<
+      CommandResult<{ project_id: string; removed: string; domain: Record<string, unknown> }>
+    > => {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const domain = await resolveDomain(ctx, projectId, ctx.positionals[0]);
       const removed = await ctx.mcp().callTool<CustomDomainRecord>("sites.remove_custom_domain", {

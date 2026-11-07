@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { bundleWorker, validateBundleText } from "./bundler.ts";
+import { bundleWorker } from "./bundler.ts";
 import { CliError, EXIT } from "./errors.ts";
 import {
   MANIFEST_DIR,
@@ -113,7 +113,9 @@ function issue(code: string, detail: string, kind: string): ConversionBlocked {
   return { code, detail, kind };
 }
 
-export async function convertWranglerProject(options: ConvertOptions): Promise<ConversionReport | null> {
+export async function convertWranglerProject(
+  options: ConvertOptions,
+): Promise<ConversionReport | null> {
   const found = findWranglerConfig(options.root);
   if (!found) return null;
   const { config } = found;
@@ -128,7 +130,9 @@ export async function convertWranglerProject(options: ConvertOptions): Promise<C
 
   const slug = makeSlug(config.name);
   if (config.name && !slug) {
-    blocked.push(issue("CONVERT_INVALID_NAME", `Cannot derive a slug from name "${config.name}".`, "name"));
+    blocked.push(
+      issue("CONVERT_INVALID_NAME", `Cannot derive a slug from name "${config.name}".`, "name"),
+    );
   }
 
   for (const [key, sectionKind] of unsupportedSections(config)) {
@@ -174,7 +178,11 @@ export async function convertWranglerProject(options: ConvertOptions): Promise<C
   const notFoundHandling = assets?.not_found_handling;
   if (notFoundHandling && !NOT_FOUND_VALUES.has(notFoundHandling)) {
     blocked.push(
-      issue("CONVERT_INVALID_NOT_FOUND", `Unsupported not_found_handling: ${notFoundHandling}`, "assets"),
+      issue(
+        "CONVERT_INVALID_NOT_FOUND",
+        `Unsupported not_found_handling: ${notFoundHandling}`,
+        "assets",
+      ),
     );
   }
 
@@ -206,7 +214,13 @@ export async function convertWranglerProject(options: ConvertOptions): Promise<C
     if (assetsDirectory) {
       const dir = path.resolve(options.root, assetsDirectory);
       if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-        blocked.push(issue("CONVERT_ASSETS_MISSING", `Assets directory does not exist: ${assetsDirectory}`, "assets"));
+        blocked.push(
+          issue(
+            "CONVERT_ASSETS_MISSING",
+            `Assets directory does not exist: ${assetsDirectory}`,
+            "assets",
+          ),
+        );
       }
     }
 
@@ -257,7 +271,9 @@ export async function convertWranglerProject(options: ConvertOptions): Promise<C
       changed.push(`${main} → dist/server/index.js (Rolldown bundle)`);
       if (assetsDirectory) {
         fs.rmSync(path.join(dist, "client"), { recursive: true, force: true });
-        fs.cpSync(path.resolve(options.root, assetsDirectory), path.join(dist, "client"), { recursive: true });
+        fs.cpSync(path.resolve(options.root, assetsDirectory), path.join(dist, "client"), {
+          recursive: true,
+        });
         changed.push(`${assetsDirectory} → dist/client`);
       }
     }
@@ -300,7 +316,8 @@ export async function convertWranglerProject(options: ConvertOptions): Promise<C
     if (config.compatibility_date || config.compatibility_flags?.length) {
       warnings.push({
         code: "CONVERT_COMPATIBILITY",
-        detail: "compatibility_date/compatibility_flags are fixed by the platform; Node.js compatibility is always enabled.",
+        detail:
+          "compatibility_date/compatibility_flags are fixed by the platform; Node.js compatibility is always enabled.",
         kind: "compatibility",
       });
     }
@@ -341,7 +358,9 @@ export async function convertWranglerProject(options: ConvertOptions): Promise<C
     writeManifest(options.root, manifest);
     changed.push(`${found.relative} → ${path.relative(options.root, manifestPath(options.root))}`);
 
-    const outputs = [path.relative(options.root, manifestPath(options.root)).split(path.sep).join("/")];
+    const outputs = [
+      path.relative(options.root, manifestPath(options.root)).split(path.sep).join("/"),
+    ];
     if (main) outputs.push("dist/server/index.js");
     if (assetsDirectory) outputs.push(main ? "dist/client/" : "dist/");
     if (d1 && fs.existsSync(path.join(dist, MANIFEST_DIR, "drizzle"))) {

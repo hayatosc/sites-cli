@@ -1,6 +1,7 @@
 // CLI argument parsing, flag definitions, and help output (plan §3.2).
 
 import { usageError } from "./errors.ts";
+import { textValue } from "./util.ts";
 import type { CommandDefinition, ParsedCli, ResolvedCommand } from "./types.ts";
 
 interface FlagDefinition {
@@ -65,7 +66,6 @@ export const FLAG_DEFS: Record<string, FlagDefinition> = {
   "errors-only": { type: "boolean" },
   follow: { type: "boolean" },
 
-
   previous: { type: "boolean" },
   secret: { type: "boolean" },
   out: { type: "string" },
@@ -115,9 +115,13 @@ function parseFlagToken(token: string): ParsedFlag {
   const def = FLAG_DEFS[name];
   if (!def) return { unknown: token };
   if (def.unsupported) {
-    throw usageError("USAGE_UNSUPPORTED_FLAG", `The ${def.unsupported} flag is not supported by sites.`, {
-      hint: "Sites has no corresponding option; remove the flag.",
-    });
+    throw usageError(
+      "USAGE_UNSUPPORTED_FLAG",
+      `The ${def.unsupported} flag is not supported by sites.`,
+      {
+        hint: "Sites has no corresponding option; remove the flag.",
+      },
+    );
   }
   if (def.type === "boolean") {
     if (inlineValue !== undefined) {
@@ -149,7 +153,10 @@ function resolveCommand(argv: string[], commands: CommandDefinition[]): Resolved
     const matches = command.path.every((part, index) => leading[index].token === part);
     if (!matches) continue;
     if (!best || command.path.length > best.path.length) {
-      best = { ...command, consumedIndexes: leading.slice(0, command.path.length).map((entry) => entry.index) };
+      best = {
+        ...command,
+        consumedIndexes: leading.slice(0, command.path.length).map((entry) => entry.index),
+      };
     }
   }
   return best;
@@ -162,7 +169,13 @@ export function parseCli(argv: string[], commands: CommandDefinition[]): ParsedC
 
   if (command) {
     const allowed = new Set([...GLOBAL_FLAGS, ...(command.flags ?? [])]);
-    const result: ParsedCli = { command, options: {}, positionals: [], help: false, version: false };
+    const result: ParsedCli = {
+      command,
+      options: {},
+      positionals: [],
+      help: false,
+      version: false,
+    };
     const consumed = new Set(command.consumedIndexes);
 
     for (let i = 0; i < argv.length; i += 1) {
@@ -236,7 +249,8 @@ export function parseCli(argv: string[], commands: CommandDefinition[]): ParsedC
     const token = argv[i];
     if (token === "--help" || token === "-h") help = true;
     else if (token === "--version" || token === "-v") version = true;
-    else if (token === "--json" || token === "--human" || token === "-q" || token === "--quiet") continue;
+    else if (token === "--json" || token === "--human" || token === "-q" || token === "--quiet")
+      continue;
     else if (token === "--no-color" || token === "-y" || token === "--yes") continue;
     else if (token === "--profile") {
       i += 1;
@@ -315,9 +329,13 @@ export function integerOption(
   if (raw === undefined) return fallback;
   const value = Number(raw);
   if (!Number.isInteger(value) || value < min || value > max) {
-    throw usageError("USAGE_INVALID_VALUE", `Invalid --${name} value: ${String(raw)}`, {
-      hint: `Use an integer between ${min} and ${max}.`,
-    });
+    throw usageError(
+      "USAGE_INVALID_VALUE",
+      `Invalid --${name} value: ${textValue(raw, JSON.stringify(raw) ?? "unknown")}`,
+      {
+        hint: `Use an integer between ${min} and ${max}.`,
+      },
+    );
   }
   return value;
 }

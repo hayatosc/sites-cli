@@ -2,7 +2,6 @@
   "name": "@hayatosc/sites",
   "version": "0.1.0",
   "description": "Deploy ChatGPT Sites projects from the command line",
-  "type": "module",
   "bin": {
     "sites": "dist/cli.mjs"
   },
@@ -11,20 +10,22 @@
     "docs/*.md",
     "README.md"
   ],
-  "engines": {
-    "node": ">=22.13"
-  },
+  "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "typecheck": "tsc --noEmit",
-    "test": "node --test",
-    "prepack": "node scripts/build.mjs"
+    "build": "vp pack",
+    "typecheck": "vp check",
+    "test": "vp test",
+    "prepack": "vp pack"
   },
   "dependencies": {
     "rolldown": "^1.3.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite-plus": "^1.5.0"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }

@@ -24,9 +24,13 @@ function requestedAccess(ctx: CommandContext): "custom" | "public" | "workspace_
     ctx.options.workspace ? "workspace_all" : null,
   ].filter(Boolean) as Array<"custom" | "public" | "workspace_all">;
   if (values.length > 1) {
-    throw new CliError("USAGE_CONFLICTING_FLAGS", "Choose only one of --private, --public, or --workspace.", {
-      exitCode: EXIT.USAGE,
-    });
+    throw new CliError(
+      "USAGE_CONFLICTING_FLAGS",
+      "Choose only one of --private, --public, or --workspace.",
+      {
+        exitCode: EXIT.USAGE,
+      },
+    );
   }
   return values[0] ?? "custom";
 }
@@ -37,7 +41,8 @@ export function registerCreateCommands(define: DefineCommand): void {
     flags: ["title", "private", "public", "workspace", "description", "dry-run"],
     positionals: { min: 1, max: 1, names: ["slug"] },
     summary: "Create a new site",
-    usage: "sites create <slug> [--title <title>] [--private|--public|--workspace] [--description <text>] [--dry-run]",
+    usage:
+      "sites create <slug> [--title <title>] [--private|--public|--workspace] [--description <text>] [--dry-run]",
     run: async (ctx): Promise<CommandResult<CreateData>> => {
       const slug = ctx.positionals[0];
       if (!SLUG_PATTERN.test(slug)) {
@@ -91,12 +96,18 @@ export function registerCreateCommands(define: DefineCommand): void {
       }
       let credential: SourceCredential | null = created.source_repository_credential ?? null;
       if (!credential) {
-        credential = await client.callTool<SourceCredential>("sites.create_source_repository_write_credential", {
-          project_id: projectId,
-        });
+        credential = await client.callTool<SourceCredential>(
+          "sites.create_source_repository_write_credential",
+          {
+            project_id: projectId,
+          },
+        );
       }
       if (accessMode !== "custom") {
-        await client.callTool("sites.update_site_access", { project_id: projectId, access_mode: accessMode });
+        await client.callTool("sites.update_site_access", {
+          project_id: projectId,
+          access_mode: accessMode,
+        });
       }
       writeManifest(ctx.root, { ...manifest, project_id: projectId });
 

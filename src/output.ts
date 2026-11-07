@@ -4,7 +4,11 @@ import { CliError } from "./errors.ts";
 import type { Env, OutputStream } from "./types.ts";
 import { stringifyJson } from "./util.ts";
 
-export function colorEnabled(stream: OutputStream, options: Record<string, unknown>, env: Env): boolean {
+export function colorEnabled(
+  stream: OutputStream,
+  options: Record<string, unknown>,
+  env: Env,
+): boolean {
   if (options["no-color"] || env.NO_COLOR) return false;
   return Boolean(stream.isTTY);
 }
@@ -19,7 +23,10 @@ export interface ErrorRenderOptions {
   color?: boolean;
 }
 
-export function printError(error: CliError, { json, stderr, color = false }: ErrorRenderOptions): void {
+export function printError(
+  error: CliError,
+  { json, stderr, color = false }: ErrorRenderOptions,
+): void {
   const details: Record<string, unknown> = {
     code: error.code,
     message: error.message,

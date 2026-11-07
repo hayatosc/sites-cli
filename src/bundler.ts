@@ -8,8 +8,25 @@ import { findWranglerConfig } from "./wrangler.ts";
 
 const TEXT_EXTENSIONS = new Set([".txt", ".html", ".json"]);
 const BINARY_EXTENSIONS = new Set([
-  ".wasm", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico", ".bmp",
-  ".woff", ".woff2", ".ttf", ".otf", ".pdf", ".zip", ".gz", ".br", ".mp4", ".mp3",
+  ".wasm",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".avif",
+  ".ico",
+  ".bmp",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".pdf",
+  ".zip",
+  ".gz",
+  ".br",
+  ".mp4",
+  ".mp3",
 ]);
 
 function extensionOf(id: string): string {
@@ -22,21 +39,29 @@ function textPlugin() {
     name: "sites-text-assets",
     resolveId(source: string) {
       if (BINARY_EXTENSIONS.has(extensionOf(source))) {
-        throw new CliError("CONVERT_BINARY_ASSET", `Binary asset imports are not supported: ${source}`, {
-          exitCode: EXIT.PREFLIGHT,
-          hint: "Bundle or inline the asset before deploying.",
-          details: { kind: "wasm", source },
-        });
+        throw new CliError(
+          "CONVERT_BINARY_ASSET",
+          `Binary asset imports are not supported: ${source}`,
+          {
+            exitCode: EXIT.PREFLIGHT,
+            hint: "Bundle or inline the asset before deploying.",
+            details: { kind: "wasm", source },
+          },
+        );
       }
       return null;
     },
     load(id: string) {
       const extension = extensionOf(id);
       if (BINARY_EXTENSIONS.has(extension)) {
-        throw new CliError("CONVERT_BINARY_ASSET", `Binary asset imports are not supported: ${id}`, {
-          exitCode: EXIT.PREFLIGHT,
-          details: { kind: "wasm", source: id },
-        });
+        throw new CliError(
+          "CONVERT_BINARY_ASSET",
+          `Binary asset imports are not supported: ${id}`,
+          {
+            exitCode: EXIT.PREFLIGHT,
+            details: { kind: "wasm", source: id },
+          },
+        );
       }
       if (!TEXT_EXTENSIONS.has(extension)) return null;
       const text = fs.readFileSync(id, "utf8");
@@ -75,16 +100,24 @@ export function validateBundleText(text: string, relative: string): void {
   }
   for (const specifier of specifiers) {
     if (specifier.startsWith(".") || specifier.startsWith("/")) {
-      throw new CliError("PREFLIGHT_INVALID_BUNDLE", `${relative} imports a relative file: ${specifier}`, {
-        exitCode: EXIT.PREFLIGHT,
-        hint: "Bundle local modules into the single ESM output.",
-      });
+      throw new CliError(
+        "PREFLIGHT_INVALID_BUNDLE",
+        `${relative} imports a relative file: ${specifier}`,
+        {
+          exitCode: EXIT.PREFLIGHT,
+          hint: "Bundle local modules into the single ESM output.",
+        },
+      );
     }
     if (!/^(cloudflare|node):/.test(specifier)) {
-      throw new CliError("PREFLIGHT_INVALID_BUNDLE", `${relative} imports a package: ${specifier}`, {
-        exitCode: EXIT.PREFLIGHT,
-        hint: "Only `cloudflare:*` and `node:*` imports are supported.",
-      });
+      throw new CliError(
+        "PREFLIGHT_INVALID_BUNDLE",
+        `${relative} imports a package: ${specifier}`,
+        {
+          exitCode: EXIT.PREFLIGHT,
+          hint: "Only `cloudflare:*` and `node:*` imports are supported.",
+        },
+      );
     }
   }
 }
@@ -131,9 +164,13 @@ export function resolveWorkerEntry(root: string): string | null {
   if (wrangler?.config.main) {
     const resolved = path.resolve(root, wrangler.config.main);
     if (fs.existsSync(resolved)) return resolved;
-    throw new CliError("CONVERT_MAIN_MISSING", `Worker entry does not exist: ${wrangler.config.main}`, {
-      exitCode: EXIT.PREFLIGHT,
-    });
+    throw new CliError(
+      "CONVERT_MAIN_MISSING",
+      `Worker entry does not exist: ${wrangler.config.main}`,
+      {
+        exitCode: EXIT.PREFLIGHT,
+      },
+    );
   }
   for (const candidate of ["worker/index.js", "src/index.js", "src/worker.js", "index.js"]) {
     const absolute = path.join(root, candidate);

@@ -3,8 +3,8 @@
 import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
 import type { AnalyticsOverview } from "../api-types.ts";
 import { resolveProjectRef } from "../manifest.ts";
-import { CliError, EXIT, usageError } from "../errors.ts";
-import { stringOption, stringifyJson } from "../util.ts";
+import { usageError } from "../errors.ts";
+import { stringOption, stringifyJson, textValue } from "../util.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
 const OFFSET_MS = -8 * HOUR_MS;
@@ -26,7 +26,9 @@ function parseWindow(value: string | undefined): number {
 function align(ms: number, direction: "floor" | "ceil"): number {
   const shifted = ms - OFFSET_MS;
   const aligned =
-    direction === "floor" ? Math.floor(shifted / HOUR_MS) * HOUR_MS : Math.ceil(shifted / HOUR_MS) * HOUR_MS;
+    direction === "floor"
+      ? Math.floor(shifted / HOUR_MS) * HOUR_MS
+      : Math.ceil(shifted / HOUR_MS) * HOUR_MS;
   return aligned + OFFSET_MS;
 }
 
@@ -69,9 +71,15 @@ export function registerAnalyticsCommands(define: DefineCommand): void {
       }
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const window = windowOf(ctx);
-      const args: Record<string, unknown> = { project_id: projectId, ...window, granularity: "hour" };
+      const args: Record<string, unknown> = {
+        project_id: projectId,
+        ...window,
+        granularity: "hour",
+      };
       if (view) args.view = view;
-      const overview = await ctx.mcp().callTool<AnalyticsOverview>("sites.get_site_analytics_overview", args);
+      const overview = await ctx
+        .mcp()
+        .callTool<AnalyticsOverview>("sites.get_site_analytics_overview", args);
       return {
         data: { project_id: projectId, ...window, view: view ?? null, overview },
         human: (value) => {
@@ -90,10 +98,12 @@ export function registerAnalyticsCommands(define: DefineCommand): void {
     run: async (ctx): Promise<CommandResult<EventsData>> => {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const window = windowOf(ctx);
-      const result = await ctx.mcp().callTool<{ events?: Array<Record<string, unknown>> }>(
-        "sites.list_site_analytics_events",
-        { project_id: projectId, ...window },
-      );
+      const result = await ctx
+        .mcp()
+        .callTool<{ events?: Array<Record<string, unknown>> }>("sites.list_site_analytics_events", {
+          project_id: projectId,
+          ...window,
+        });
       const events = result.events ?? [];
       return {
         data: { project_id: projectId, ...window, events },
@@ -103,7 +113,9 @@ export function registerAnalyticsCommands(define: DefineCommand): void {
             return;
           }
           for (const event of value.events) {
-            ctx.stdout.write(`${String(event.timestamp ?? event.event_time ?? "")}  ${JSON.stringify(event)}\n`);
+            ctx.stdout.write(
+              `${textValue(event.timestamp ?? event.event_time)}  ${JSON.stringify(event)}\n`,
+            );
           }
         },
       };

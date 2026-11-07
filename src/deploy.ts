@@ -14,7 +14,12 @@ import type { LocalState } from "./manifest.ts";
 import { convertWranglerProject } from "./convert.ts";
 import type { ConversionReport } from "./convert.ts";
 import { CliError, EXIT } from "./errors.ts";
-import type { DeploymentRecord, SiteRecord, SiteVersionRecord, SourceCredential } from "./api-types.ts";
+import type {
+  DeploymentRecord,
+  SiteRecord,
+  SiteVersionRecord,
+  SourceCredential,
+} from "./api-types.ts";
 import type { CommandContext } from "./types.ts";
 import { stringOption } from "./util.ts";
 
@@ -35,12 +40,19 @@ export interface DeployData {
 }
 
 function accessModeFromFlags(ctx: CommandContext): "custom" | "public" | "workspace_all" | null {
-  const requested = [ctx.options.private ? "custom" : null, ctx.options.public ? "public" : null, ctx.options.workspace ? "workspace_all" : null]
-    .filter(Boolean) as Array<"custom" | "public" | "workspace_all">;
+  const requested = [
+    ctx.options.private ? "custom" : null,
+    ctx.options.public ? "public" : null,
+    ctx.options.workspace ? "workspace_all" : null,
+  ].filter(Boolean) as Array<"custom" | "public" | "workspace_all">;
   if (requested.length > 1) {
-    throw new CliError("USAGE_CONFLICTING_FLAGS", "Choose only one of --private, --public, or --workspace.", {
-      exitCode: EXIT.USAGE,
-    });
+    throw new CliError(
+      "USAGE_CONFLICTING_FLAGS",
+      "Choose only one of --private, --public, or --workspace.",
+      {
+        exitCode: EXIT.USAGE,
+      },
+    );
   }
   return requested[0] ?? null;
 }
@@ -82,7 +94,9 @@ function readEnvFile(root: string, file: string): Array<{ key: string; value: st
   try {
     raw = fs.readFileSync(absolute, "utf8");
   } catch {
-    throw new CliError("PREFLIGHT_ENV_FILE", `Cannot read env file: ${file}`, { exitCode: EXIT.PREFLIGHT });
+    throw new CliError("PREFLIGHT_ENV_FILE", `Cannot read env file: ${file}`, {
+      exitCode: EXIT.PREFLIGHT,
+    });
   }
   const entries: Array<{ key: string; value: string }> = [];
   for (const line of raw.split("\n")) {
@@ -106,12 +120,19 @@ function readEnvFile(root: string, file: string): Array<{ key: string; value: st
   return entries;
 }
 
-function credentialOf(value: SourceCredential | null | undefined, projectId: string): SourceCredential {
+function credentialOf(
+  value: SourceCredential | null | undefined,
+  projectId: string,
+): SourceCredential {
   if (!value?.remote_url) {
-    throw new CliError("PREFLIGHT_NO_SOURCE_CREDENTIAL", "The source repository credential is missing.", {
-      exitCode: EXIT.PREFLIGHT,
-      details: { project_id: projectId },
-    });
+    throw new CliError(
+      "PREFLIGHT_NO_SOURCE_CREDENTIAL",
+      "The source repository credential is missing.",
+      {
+        exitCode: EXIT.PREFLIGHT,
+        details: { project_id: projectId },
+      },
+    );
   }
   return value;
 }
@@ -121,9 +142,13 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   const allowDirty = Boolean(ctx.options["allow-dirty"]);
   const timeout = Number(ctx.options.timeout ?? 300);
   if (!Number.isFinite(timeout) || timeout <= 0) {
-    throw new CliError("USAGE_INVALID_VALUE", `Invalid --timeout value: ${String(ctx.options.timeout)}`, {
-      exitCode: EXIT.USAGE,
-    });
+    throw new CliError(
+      "USAGE_INVALID_VALUE",
+      `Invalid --timeout value: ${String(ctx.options.timeout)}`,
+      {
+        exitCode: EXIT.USAGE,
+      },
+    );
   }
   const requestedAccess = accessModeFromFlags(ctx);
   const message = stringOption(ctx.options, "message") ?? "Update Site source";
@@ -184,7 +209,9 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   }
 
   const state = readState(ctx.root);
-  const advanceSha = Boolean(state.last_artifact_hash && state.last_artifact_hash !== dist.treeHash);
+  const advanceSha = Boolean(
+    state.last_artifact_hash && state.last_artifact_hash !== dist.treeHash,
+  );
 
   const client = ctx.mcp();
   await client.initialize();
@@ -201,10 +228,14 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   if (ctx.options["no-source-sync"]) {
     commitSha = (await currentHead(ctx.root)) ?? state.last_commit_sha ?? null;
     if (!commitSha) {
-      throw new CliError("PREFLIGHT_NO_COMMIT", "No commit SHA is available for --no-source-sync.", {
-        exitCode: EXIT.PREFLIGHT,
-        hint: "Push the source repository once, or omit --no-source-sync.",
-      });
+      throw new CliError(
+        "PREFLIGHT_NO_COMMIT",
+        "No commit SHA is available for --no-source-sync.",
+        {
+          exitCode: EXIT.PREFLIGHT,
+          hint: "Push the source repository once, or omit --no-source-sync.",
+        },
+      );
     }
     ctx.log(`source sync skipped (${commitSha.slice(0, 8)})`);
   } else {
@@ -237,7 +268,9 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
     });
     commitSha = synced.commitSha;
     pushed = synced.pushed;
-    ctx.log(`source ${pushed ? "pushed" : "unchanged"} (${commitSha.slice(0, 8)} → ${synced.branch})`);
+    ctx.log(
+      `source ${pushed ? "pushed" : "unchanged"} (${commitSha.slice(0, 8)} → ${synced.branch})`,
+    );
   }
 
   ctx.log("[4/7] Package");
@@ -266,8 +299,9 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
 
   const mergedValues = new Map<string, { key: string; value: string }>();
   for (const entry of conversionVariables(ctx.root)) mergedValues.set(entry.key, entry);
-  if (ctx.options["env-file"]) {
-    for (const entry of readEnvFile(ctx.root, String(ctx.options["env-file"]))) {
+  const envFile = stringOption(ctx.options, "env-file");
+  if (envFile) {
+    for (const entry of readEnvFile(ctx.root, envFile)) {
       mergedValues.set(entry.key, entry);
     }
   }
@@ -281,7 +315,8 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   }
 
   ctx.log("[7/7] Deploy");
-  const tool = currentAccess === "custom" ? "sites.deploy_private_site_version" : "sites.deploy_site_version";
+  const tool =
+    currentAccess === "custom" ? "sites.deploy_private_site_version" : "sites.deploy_site_version";
   const deployment = await client.callTool<DeploymentRecord>(tool, {
     project_id: projectId,
     version_id: version.id,
@@ -300,7 +335,10 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
 
   let accessMode = currentAccess;
   if (targetAccess !== currentAccess) {
-    await client.callTool("sites.update_site_access", { project_id: projectId, access_mode: targetAccess });
+    await client.callTool("sites.update_site_access", {
+      project_id: projectId,
+      access_mode: targetAccess,
+    });
     accessMode = targetAccess;
   }
 
@@ -313,7 +351,7 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
     updated_at: new Date().toISOString(),
   };
   const tag = stringOption(ctx.options, "tag");
-  if (tag) nextState.tags = { ...(state.tags ?? {}), [tag]: version.id };
+  if (tag) nextState.tags = { ...state.tags, [tag]: version.id };
   writeState(ctx.root, nextState);
 
   return {

@@ -52,7 +52,9 @@ export function decodeJwtExpiry(token: string): number | null {
   try {
     const payload = token.split(".")[1];
     if (!payload) return null;
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { exp?: unknown };
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+      exp?: unknown;
+    };
     return typeof claims.exp === "number" ? claims.exp * 1000 : null;
   } catch {
     return null;
@@ -79,24 +81,36 @@ export function loadAuthIdentity(env: Env): Identity {
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
-      throw new CliError("AUTH_NOT_FOUND", `Codex credentials not found at ${displayPath(file, homeDir(env))}`, {
-        exitCode: EXIT.AUTH,
-        hint: "Run `codex login` to sign in, then retry.",
-      });
+      throw new CliError(
+        "AUTH_NOT_FOUND",
+        `Codex credentials not found at ${displayPath(file, homeDir(env))}`,
+        {
+          exitCode: EXIT.AUTH,
+          hint: "Run `codex login` to sign in, then retry.",
+        },
+      );
     }
-    throw new CliError("AUTH_READ_FAILED", `Could not read ${displayPath(file, homeDir(env))}: ${(error as Error).message}`, {
-      exitCode: EXIT.AUTH,
-    });
+    throw new CliError(
+      "AUTH_READ_FAILED",
+      `Could not read ${displayPath(file, homeDir(env))}: ${(error as Error).message}`,
+      {
+        exitCode: EXIT.AUTH,
+      },
+    );
   }
 
   let parsed: AuthFile;
   try {
     parsed = JSON.parse(raw) as AuthFile;
   } catch {
-    throw new CliError("AUTH_INVALID", `Invalid Codex credentials at ${displayPath(file, homeDir(env))}`, {
-      exitCode: EXIT.AUTH,
-      hint: "Run `codex login` again.",
-    });
+    throw new CliError(
+      "AUTH_INVALID",
+      `Invalid Codex credentials at ${displayPath(file, homeDir(env))}`,
+      {
+        exitCode: EXIT.AUTH,
+        hint: "Run `codex login` again.",
+      },
+    );
   }
 
   const tokens = parsed.tokens ?? {};
@@ -128,7 +142,7 @@ function writeAuthFile(identity: Identity, response: RefreshResponse): void {
   const target = identity.path;
   if (!target) return;
   const current = identity.raw ?? (JSON.parse(fs.readFileSync(target, "utf8")) as AuthFile);
-  const tokens = { ...(current.tokens ?? {}) };
+  const tokens = { ...current.tokens };
   tokens.access_token = response.access_token;
   if (response.refresh_token) tokens.refresh_token = response.refresh_token;
   if (response.id_token) tokens.id_token = response.id_token;
@@ -138,7 +152,10 @@ function writeAuthFile(identity: Identity, response: RefreshResponse): void {
     last_refresh: new Date().toISOString(),
   };
 
-  const tmp = path.join(path.dirname(target), `.auth.json.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
+  const tmp = path.join(
+    path.dirname(target),
+    `.auth.json.${process.pid}.${randomBytes(6).toString("hex")}.tmp`,
+  );
   fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
   try {
     fs.chmodSync(tmp, 0o600);
@@ -154,12 +171,19 @@ function writeAuthFile(identity: Identity, response: RefreshResponse): void {
   identity.raw = next;
 }
 
-export async function refreshIdentity(identity: Identity, env: Env = process.env as Env): Promise<Identity> {
+export async function refreshIdentity(
+  identity: Identity,
+  env: Env = process.env as Env,
+): Promise<Identity> {
   if (!identity.refreshToken) {
-    throw new CliError("AUTH_REFRESH_UNAVAILABLE", "The Codex access token has expired and no refresh token is available.", {
-      exitCode: EXIT.AUTH,
-      hint: "Run `codex login` to sign in again.",
-    });
+    throw new CliError(
+      "AUTH_REFRESH_UNAVAILABLE",
+      "The Codex access token has expired and no refresh token is available.",
+      {
+        exitCode: EXIT.AUTH,
+        hint: "Run `codex login` to sign in again.",
+      },
+    );
   }
 
   const url = env.SITES_AUTH_URL || "https://auth.openai.com/oauth/token";
@@ -176,10 +200,14 @@ export async function refreshIdentity(identity: Identity, env: Env = process.env
       signal: AbortSignal.timeout(60_000),
     });
   } catch (error) {
-    throw new CliError("AUTH_REFRESH_FAILED", `Could not refresh the Codex token: ${(error as Error).message}`, {
-      exitCode: EXIT.AUTH,
-      hint: "Check the network connection and run `codex login` if the problem persists.",
-    });
+    throw new CliError(
+      "AUTH_REFRESH_FAILED",
+      `Could not refresh the Codex token: ${(error as Error).message}`,
+      {
+        exitCode: EXIT.AUTH,
+        hint: "Check the network connection and run `codex login` if the problem persists.",
+      },
+    );
   }
 
   if (!response.ok) {
@@ -216,10 +244,14 @@ export async function ensureFresh(
 ): Promise<Identity> {
   if (!identity.path) {
     if (isExpired(identity)) {
-      throw new CliError("AUTH_EXPIRED", "The Codex access token has expired and cannot be refreshed.", {
-        exitCode: EXIT.AUTH,
-        hint: "Run `codex login` to sign in again, or set a fresh SITES_ACCESS_TOKEN.",
-      });
+      throw new CliError(
+        "AUTH_EXPIRED",
+        "The Codex access token has expired and cannot be refreshed.",
+        {
+          exitCode: EXIT.AUTH,
+          hint: "Run `codex login` to sign in again, or set a fresh SITES_ACCESS_TOKEN.",
+        },
+      );
     }
     return identity;
   }

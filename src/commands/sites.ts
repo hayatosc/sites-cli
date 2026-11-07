@@ -11,7 +11,7 @@ import type {
 } from "../api-types.ts";
 import { resolveProjectRef } from "../manifest.ts";
 import { usageError } from "../errors.ts";
-import { integerOption, } from "../args.ts";
+import { integerOption } from "../args.ts";
 import { stringOption } from "../util.ts";
 
 interface ListedSite {
@@ -42,9 +42,14 @@ interface InfoData {
 }
 
 function renderTable(ctx: CommandContext, header: string[], rows: string[][]): void {
-  const widths = header.map((cell, index) => Math.max(cell.length, ...rows.map((row) => row[index].length)));
+  const widths = header.map((cell, index) =>
+    Math.max(cell.length, ...rows.map((row) => row[index].length)),
+  );
   const render = (row: string[]): string =>
-    row.map((cell, index) => cell.padEnd(widths[index])).join("  ").trimEnd();
+    row
+      .map((cell, index) => cell.padEnd(widths[index]))
+      .join("  ")
+      .trimEnd();
   ctx.stdout.write([render(header), ...rows.map(render)].join("\n") + "\n");
 }
 
@@ -123,10 +128,15 @@ export function registerSiteCommands(define: DefineCommand): void {
         ...(ctx.options.mcp ? { include_mcp_connection: true } : {}),
       });
       const [versions, domains] = await Promise.all([
-        ctx.mcp()
-          .callTool<ListVersionsResult>("sites.list_site_versions", { project_id: projectId, limit: 1 })
+        ctx
+          .mcp()
+          .callTool<ListVersionsResult>("sites.list_site_versions", {
+            project_id: projectId,
+            limit: 1,
+          })
           .catch(() => ({ items: [] as SiteVersionRecord[] })),
-        ctx.mcp()
+        ctx
+          .mcp()
           .callTool<ListCustomDomainsResult>("sites.list_custom_domains", { project_id: projectId })
           .catch(() => ({ items: [] as CustomDomainRecord[] })),
       ]);

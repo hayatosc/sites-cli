@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { CommandContext, CommandDefinition, CommandResult, DefineCommand } from "../types.ts";
+import type { CommandDefinition, CommandResult, DefineCommand } from "../types.ts";
 import { CliError, usageError } from "../errors.ts";
 
 interface CliSearchHit {
@@ -111,7 +111,9 @@ export function registerDocsCommands(define: DefineCommand, commands: CommandDef
           scoreText((command.flags ?? []).join(" "), words);
         if (score > 0) results.push({ command: name, summary: command.summary ?? "", score });
       }
-      results.sort((left, right) => right.score - left.score || left.command.localeCompare(right.command));
+      results.sort(
+        (left, right) => right.score - left.score || left.command.localeCompare(right.command),
+      );
       return {
         data: { query, results: results.slice(0, 5) },
         human: (value) => {
@@ -178,7 +180,9 @@ export function registerDocsCommands(define: DefineCommand, commands: CommandDef
       return {
         data: { tools: [tool] },
         human: (value) => {
-          ctx.stdout.write(`${value.tools[0].name}\n${JSON.stringify(value.tools[0].inputSchema, null, 2)}\n`);
+          ctx.stdout.write(
+            `${value.tools[0].name}\n${JSON.stringify(value.tools[0].inputSchema, null, 2)}\n`,
+          );
         },
       };
     },

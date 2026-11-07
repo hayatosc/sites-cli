@@ -146,7 +146,10 @@ function splitTopLevel(text: string): string[] {
 
 function parseTomlValue(raw: string): unknown {
   const value = raw.trim();
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
     const inner = value.slice(1, -1);
     return value.startsWith('"') ? inner.replace(/\\"/g, '"').replace(/\\n/g, "\n") : inner;
   }
@@ -221,18 +224,27 @@ export function findWranglerConfig(root: string): FoundWrangler | null {
     try {
       text = fs.readFileSync(absolute, "utf8");
     } catch (error) {
-      throw new CliError("CONVERT_READ_FAILED", `Could not read ${name}: ${(error as Error).message}`, {
-        exitCode: EXIT.PREFLIGHT,
-      });
+      throw new CliError(
+        "CONVERT_READ_FAILED",
+        `Could not read ${name}: ${(error as Error).message}`,
+        {
+          exitCode: EXIT.PREFLIGHT,
+        },
+      );
     }
     let config: WranglerConfig;
     try {
-      config = format === "toml" ? parseToml(text) : (JSON.parse(stripJsonc(text)) as WranglerConfig);
+      config =
+        format === "toml" ? parseToml(text) : (JSON.parse(stripJsonc(text)) as WranglerConfig);
     } catch (error) {
-      throw new CliError("CONVERT_INVALID_CONFIG", `Could not parse ${name}: ${(error as Error).message}`, {
-        exitCode: EXIT.PREFLIGHT,
-        hint: "Fix the configuration file and retry.",
-      });
+      throw new CliError(
+        "CONVERT_INVALID_CONFIG",
+        `Could not parse ${name}: ${(error as Error).message}`,
+        {
+          exitCode: EXIT.PREFLIGHT,
+          hint: "Fix the configuration file and retry.",
+        },
+      );
     }
     return { file: absolute, relative: name, format, config };
   }
