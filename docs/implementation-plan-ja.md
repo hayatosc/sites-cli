@@ -1,857 +1,672 @@
-# sites CLI 実装計画
+# sites CLI 仕様書
 
-ChatGPT Sites へコマンド 1 つでデプロイする CLI（`sites`）の実装案。
-本書は**調査と設計のみ**を目的とし、実装コードは含まない。サイトの作成・デプロイも行っていない。
+- **この文書は何か**: ChatGPT Sites へコマンド 1 つでデプロイする CLI（`sites`）の仕様。実装と利用の基準になる。
+- **対象読者**: 実装者、利用者、レビュアー。
+- **関連文書**: 実測の根拠は [verification-ja.md](./verification-ja.md)、一次資料は `docs/research/`。
 
-- 対象リポジトリ: `~/ghq/github.com/hayatosc/sites-cli`
-- 調査日: 2026-11-07
-- 前提調査: `docs/research/` の 3 文書（内容は鵜呑みにせず、可能な限り一次情報で再確認した。相違点は本文に明記）
+## 1. 目的と範囲
 
----
+### 1.1 目的
 
-## 0. 根拠レベルの定義
+`cf`（Cloudflare CLI）と同じ使用感で、Sites のプロジェクトも、wrangler 前提の Cloudflare プロジェクトも `sites deploy` で公開できるようにする。Codex を介さず `https://chatgpt.com/backend-api/ps/mcp` へ直接 MCP 接続する。
 
-本書の各主張には次のラベルを付ける。**「未検証」は、スキーマやソースから「こう動くはず」と推定したにすぎない項目**であり、実装前にオーナー承認を得て検証する必要がある。
+### 1.2 対象
 
-| ラベル | 意味 |
+- 単一の Worker で構成されたサイト（D1 / R2 をバインディング名で利用）。
+- 静的なファイルだけのサイト。
+- `wrangler.jsonc` / `wrangler.json` / `wrangler.toml` から変換できるプロジェクト。
+
+### 1.3 対象外
+
+- 複数 Worker、monorepo のワークスペース構成。
+- KV / Durable Objects / Queues / Service Bindings / Hyperdrive / Vectorize / Workers AI。
+- Next.js / Vinext など、フレームワーク固有の出力を前提とするもの（Sites 側の starter を使う）。
+- ローカル開発サーバ（`sites dev`）とプレビューデプロイ（`sites preview`）。
+
+## 2. 前提
+
+### 2.1 認証
+
+- Codex CLI の資格情報を流用する。**独自ログインは作らない**（`sites auth login` / `logout` / `list` は存在しない）。独自の資格情報ストアも作らない。
+- 解決順は環境変数 `SITES_ACCESS_TOKEN`、次に `~/.codex/auth.json` の `tokens.access_token`。
+- 期限切れ・401 のときは `tokens.refresh_token` で更新し、新しいトークンを `~/.codex/auth.json` へ原子的に書き戻す（`0600`、一時ファイル + rename、`auth_mode` / `OPENAI_API_KEY` / `tokens.account_id` は保持）。
+- 認証の生存確認は MCP `initialize` の応答 `serverInfo.name == "plugin-runtime"` で行う。
+- したがって利用前提は「Codex CLI にログイン済みであること」。
+
+### 2.2 実装形態
+
+- **単一ファイルの Node ESM（`.mjs`）**。実行時依存パッケージを持たない。
+- そのため次のものは自前で実装する。
+  - SSE の解析（`data:` 行の連結。JSON がそのまま返る場合も受ける）
+  - JSONC のコメント・末尾カンマの除去
+  - tar の作成（システムの `tar` を `-C <stage> -czf <archive> dist` で呼ぶ）
+  - 進捗表示・色付け（`NO_COLOR` と TTY 判定のみ）
+- Rolldown は同梱しない。Worker のバンドルは、プロジェクト側の `rolldown`（devDependency）または `npx rolldown` を使う。詳細は §7.3。
+
+### 2.3 実行環境
+
+- Node.js 22.13 以上（`fetch`、`WebSocket` は使わない、`node:test` を使う）。
+- `git` がインストールされていること（ソース同期に使う）。
+- 対応 OS は Linux / macOS / Windows（`tar.exe` がある前提）。
+
+## 3. CLI 仕様
+
+### 3.1 出力
+
+- **データ系コマンドの stdout は既定で JSON**（`cf auth whoami` などの cf のデータ系コマンドに合わせる）。
+- `--human` を付けたときだけ表・箇条書きの人間可読出力にする。
+- 進捗・警告・診断はすべて stderr。stdout には結果だけを出す。
+- `--quiet` は stderr の進捗を止める（結果は変えない）。
+- 成功時の JSON は次の封筒に統一する。
+
+```json
+{ "ok": true, "data": { }, "meta": { "duration_ms": 28431, "request_id": "req_…" } }
+```
+
+### 3.2 グローバルフラグ
+
+| フラグ | 意味 |
 | --- | --- |
-| 実測 | この PC で実際にコマンドを実行し、出力を確認した |
-| ソース確認 | 配布物（プラグイン 1.1.3 のスクリプト・雛形・手順書、`cf` の実装）を読んで確認した |
-| 公式ドキュメント | 一次ドキュメント（Cloudflare `cf` ドキュメント等）を読んで確認した |
-| 未検証 | 上記から推定したが、実行による確認はしていない（書き込み系は原則ここに落ちる） |
+| `--json` | JSON 出力を明示する（既定と同じ） |
+| `--human` | 人間可読出力にする |
+| `-q, --quiet` | stderr の進捗を止める（エラーは出す） |
+| `--profile <name>` | 資格情報プロファイル（現状は Codex 認証を共有するため実質 1 つ） |
+| `--no-color` | 色を無効化する（`NO_COLOR` も受け付ける） |
+| `-y, --yes` | 対話確認をすべて承諾する（非 TTY では必須） |
+| `-h, --help` | ヘルプを表示して終了（0） |
+| `-v, --version` | バージョンを表示して終了（0） |
 
-書き込み系（`create_site` / `save_site_version` / `deploy*` / 環境変数変更 / アクセス設定変更 / ドメイン追加 / 削除）は**一切実行していない**。
+`cf` の `-z/--zone`、`--local`、`--persist-to`、`-m/--mode` は対応物がないため受け付けず、指定されたら終了コード 2 で拒否する（黙って無視しない）。
 
----
+### 3.3 終了コード
 
-## 1. 結論サマリ
-
-1. **Sites の実体は「Cloudflare Workers 上のホスティング + マニフェスト `.openai/hosting.json` + アーカイブ `dist/` のアップロード」**である。`cf` の `deploy`（ビルド → 検証 → アップロード → デプロイ）と同じ骨格を持ち、CLI の使用感を `cf` に寄せるのは現実的。
-2. **バインディングは D1 と R2 の 2 種のみ**。KV / Durable Objects / Queues / Service Bindings / Hyperdrive / Vectorize / Cron Triggers はマニフェストのキーとして存在せず、未知キーは保存時に `Extra inputs are not permitted` で落ちる（実測）。**wrangler プロジェクトからの変換では「事前検査で停止」**するのが正しい。
-3. **`ASSETS` バインディングは使える**（実測）。`env.ASSETS` は宣言なしで常に注入され、`ASSETS.fetch()` は `dist/client/` 配下の資産を返す。したがって wrangler の `assets`（`binding: "ASSETS"`）は `dist/client/` への変換で受けられる。ただし starter の README は保証を約束していないため、CLI は変換時に注記を出す。
-4. **単一 ESM 化は Rolldown で行う**（実測）。`external: [/^cloudflare:/, /^node:/]` を明示すると 414 B の単一 ESM になり、import はその 2 種類だけになる。`nodejs_compat` はホスト側で**有効**（実測）。WASM はバンドルできても実行時コンパイルが禁止されているため不可（実測）。
-5. **WebSocket は可、raw TCP は不可**（実測）。公開サイトでは `wss://` の往復が通り、`cloudflare:sockets` の `connect()` は書き込み時に `Stream was cancelled.` で落ちる。
-6. **認証は Codex の資格情報（`~/.codex/auth.json`）をそのまま使う**。`sites auth login` のような独自ログインは作らず、リフレッシュ時のみ書き戻す（`client_id` とローテーションは実測済み）。
-7. **`cf build` に相当する独立コマンドは作らない**。ビルドは `deploy` の内部処理とし、ビルド + 検査だけの需要は `sites deploy --dry-run` で満たす（デプロイ一発で完結する `cf` の使用感を優先）。
-8. **`cf` との差分で埋めるべき穴**は「ローカル開発サーバ・プレビュー・CI ビルド・ゾーン/DNS・暗号化に強い認証 UI」。逆に Sites 固有の「slug 予約確認・アクセス範囲・ドメイン接続・アナリティクス・DB ビューア・スケジュール」は `cf` に対応物がないので、`sites` 側で新規に設計する。
-9. 実測で確定した「ソース push 必須」「`commit_sha` 重複排除」「状態は `succeeded`」「マイグレーションは文字列順」は実装の前提条件（詳細は [verification-ja.md](./verification-ja.md)）。
----
-
-## 2. Sites プラットフォームの実態
-
-### 2.1 3 層構造
-
-| 層 | 実体 | 役割 |
+| コード | 意味 | 代表例 |
 | --- | --- | --- |
-| ローカル | `~/.codex/plugins/cache/openai-curated-remote/sites/1.1.3/` | 手順書（`skills/sites/SKILL.md`）とビルド/パッケージ用スクリプト、雛形 |
-| ツール | MCP コネクタ `codex_apps`（`connector_20205bf7d4e99a89d7154bb849718324`） | `sites.*` 39 ツール。サイト作成・バージョン保存・デプロイ・環境変数・ログ等 |
-| 実行 | Cloudflare Workers / D1 / R2 | 実際の配信。isolate あたり 128 MB、raw TCP 不可 |
+| 0 | 成功 | デプロイ完了、一覧取得成功 |
+| 1 | 一般エラー | 予期しない例外、ローカル I/O 失敗、`status` が `failed` |
+| 2 | 使い方の誤り | 未知のフラグ、引数不足、排他フラグの同時指定 |
+| 3 | 認証エラー | `auth.json` なし、リフレッシュ失敗、401 |
+| 4 | 通信・サーバエラー | ネットワーク断、5xx、タイムアウト、レート制限 |
+| 5 | 事前検査の失敗 | 非対応バインディング、上限超過、未コミット変更 |
+| 6 | 状態の競合 | 履歴の分岐、保存中の競合、slug 使用済み |
+| 130 | 中断 | Ctrl-C（子プロセスを止め、一時ファイルを片付けてから終了） |
 
-`cf` が「ローカルでビルドし、Worker をアップロードする」のに対し、Sites は**ソースを git リポジトリへ push し、`dist/` を tar でアップロードし、バージョンをデプロイする**。CLI が隠蔽すべき複雑さはここに集中する。
+### 3.4 エラー形式
 
-### 2.2 発行パイプライン（一次情報で確認した順序）
+stderr に 3 行で出す。
 
-```
-1. sites.create_site({title, slug})                      ← 初回のみ。project_id と expected_url が返る
-2. sites.create_source_repository_write_credential(...)   ← 初回のみ。remote_url / branch / token
-3. git init / fetch / ff-only / commit / push             ← ローカル。ヘッダ認証
-4. dist/ を組み立て、tar.gz 化                             ← ローカル
-5. 添付ファイル 3 段階アップロード → `{download_url, file_id, …}`   ← HTTP（MCP の file param）
-6. sites.save_site_version({project_id, commit_sha, archive})
-7. sites.deploy_private_site_version / deploy_site_version({project_id, version_id})
-8. sites.get_deployment_status({project_id, deployment_id}) ← pending/building/publishing の間だけポーリング
-```
-
-`save_version_and_deploy_private`（保存 + 非公開デプロイを 1 呼び出し）という合成ツールもあるが、**バージョン ID を CLI 側で保持したい・状態を表示したい**ので、`sites` は 6 と 7 を分けて呼ぶ。
-
-### 2.3 アーカイブ契約（`prepare-site-build.cjs` / `package-site.mjs` の実装から）
-
-- ルートは常に `dist/`。中身は
-  - Worker 型: `dist/server/index.js`（単一 ESM）+ `dist/.openai/hosting.json`（+ `dist/.openai/drizzle/`）
-  - 静的型: `dist/` 配下の成果物 + `dist/.openai/hosting.json`（`static.directory` は `"dist"` に**書き換えられる**）
-- 同梱が必須: `.openai/hosting.json`。無いと失敗する。
-- 禁止: シンボリックリンク・特殊ファイル（`assertRegularTree`）、プロジェクト外への出力、入力ディレクトリの内部への出力。
-- 静的ビルドに `d1` / `r2` / `capabilities` / `drizzle/**.sql` が混ざると**ハードエラー**（"Static builds cannot use runtime bindings, capabilities, or database migrations"）。
-- Worker ビルドに `static` が残ると**ハードエラー**（"Worker builds must not retain static configuration in dist/.openai/hosting.json"）。
-- `static.directory` の許容値は `dist`, `dist/client`, `out`, `build`, `.output/public` の 5 つだけ。`not_found_handling` は `none` / `404-page` / `single-page-application`。
-- アーカイブはチェックアウト外（または git 管理外の `outputs/`）に置く。`GIT_DIR` 等の環境変数は git 呼び出し時に除去される。
-
-### 2.4 ソース同期プロトコル（`site-workflow.mjs` の実装から）
-
-初回:
-
-```bash
-git init --initial-branch <branch>
-git ls-remote --heads <remote_url> refs/heads/<branch>   # 空であることを確認
+```text
+Error: Static-only site bundles cannot use runtime resource bindings, capabilities, or database migrations.
+  hint: Remove "d1" from .openai/hosting.json, or drop "static" to build as a Worker site.
+  docs: docs/implementation-plan-ja.md §5.2（archive 契約）
 ```
 
-2 回目以降: `git fetch --no-tags` → 空なら `checkout -B`、遅れていれば `merge --ff-only`。分岐していれば
-`Local and remote Site history diverged…` で停止（マージはしない）。
+JSON 出力時は構造化する。
 
-保存:
-
-```bash
-git add --all -- .
-git write-tree
-git diff --cached --quiet          # 差分なしなら commit しない
-git -c user.name=Sites -c user.email=sites@users.noreply.openai.com commit -m "Update Site source"
-git push <remote_url> <head>:refs/heads/<branch>
-git ls-remote --heads <remote_url> refs/heads/<branch>   # 一致確認
-git status --porcelain                                   # クリーン確認
-```
-
-認証は**トークンを argv に載せない**：
-
-```bash
-GIT_TERMINAL_PROMPT=0 \
-SITES_GIT_AUTHORIZATION="Authorization: Bearer <token>" \
-git -c credential.helper= -c http.extraHeader= -c http.followRedirects=false \
-    --config-env=http.<remote_url>.extraHeader=SITES_GIT_AUTHORIZATION \
-    push <remote_url> HEAD:refs/heads/<branch>
-```
-
-`remote_url` は HTTPS のみ許可、userinfo・クエリ・フラグメントを含んではならない。トークンは stderr から `[redacted]` に置換する。
-
-### 2.5 マニフェスト `.openai/hosting.json`
-
-```jsonc
+```json
 {
-  "project_id": "appgprj_...",     // create_site の "id"。再作成しない
-  "static": {                       // Worker 型では「キーごと省略」
-    "directory": "dist",
-    "not_found_handling": "single-page-application"
-  },
-  "d1": null,                       // 使うなら "DB" などバインディング名（文字列）
-  "r2": null,                       // 同上
-  "capabilities": ["mcp"],          // 任意（"mcp" 以外は保存時に拒否）
-  "plugins": [],                    // 任意
-  "connectors": []                  // 任意
+  "ok": false,
+  "error": {
+    "code": "PREFLIGHT_STATIC_WITH_BINDINGS",
+    "message": "Static-only site bundles cannot use runtime resource bindings, capabilities, or database migrations.",
+    "hint": "Remove \"d1\" from .openai/hosting.json, or drop \"static\" to build as a Worker site.",
+    "details": { "bindings": ["d1"] }
+  }
 }
 ```
 
-- `d1` / `r2` は**バインディング名**。`wrangler.jsonc` の `database_id` や `bucket_name` は使わない（Sites 側がプロビジョニングする）。
-- secrets はここに書かない。環境変数はツール（`update_environment_variables`）で設定する。
+- `code` は機械可読な固定文字列。`message` は API の文言をそのまま使ってよい。
+- トークン・`upload_url`・`download_url` は出力しない。URL を出す場合はクエリを落とす。
 
----
+### 3.5 コマンド一覧
 
-## 3. 「できること・できないこと」対応表
+| コマンド | 目的 | 対応する cf |
+| --- | --- | --- |
+| `sites auth whoami` | 認証状態の確認 | `cf auth whoami` |
+| `sites init [dir]` | プロジェクト雛形の作成 | `cf init` |
+| `sites create <slug>` | サイトの新規作成 | （なし） |
+| `sites list` | サイト一覧 | （なし） |
+| `sites info` | サイトの詳細 | （なし） |
+| `sites deploy` | ビルド・同期・公開 | `cf deploy` |
+| `sites status` | デプロイ状態 | `cf workers deployments list` |
+| `sites logs` | Worker ログ | `cf logs retrieve` |
+| `sites versions` | バージョン一覧・ロールバック | `cf workers versions list` |
+| `sites env` | 環境変数の管理 | （なし） |
+| `sites access` | 公開範囲の管理 | （なし） |
+| `sites domains` | カスタムドメイン | （なし） |
+| `sites analytics` | アクセス解析 | （なし） |
+| `sites open` | ブラウザで開く | （なし） |
+| `sites delete` | サイト削除 | `cf delete`（対象が異なる） |
+| `sites doctor` | 前提と設定の診断 | （なし） |
+| `sites cli search` | コマンド検索 | `cf cli search` |
+| `sites docs search` | ドキュメント検索 | `cf docs search` |
+| `sites schema` | API スキーマのダンプ | `cf schema` |
 
-対象は依頼で指定された全項目。**判定は「Sites 上で、`sites` CLI 経由で実現できるか」**の意味で付けた。
+**`sites build` は存在しない。** ビルドは `sites deploy` の内部処理で、ビルドだけを確認したい場合は `sites deploy --dry-run` を使う（アップロードもソース同期もしない）。`cf build` のように単体で成果物だけ作る操作は提供しない。
 
-| 項目 | 判定 | 根拠レベル | 根拠・補足 |
-| --- | --- | --- | --- |
-| D1 | 可（1 サイト 1 バインディング） | ソース確認 + 公式ドキュメント | `hosting.json` の `d1` にバインディング名。雛形 `db/index.ts` が `env.DB` を使う。上限 10 GB/サイト |
-| R2 | 可（1 サイト 1 バインディング） | ソース確認 | `hosting.json` の `r2`。`cloudflare-env.d.ts` に `BUCKET?: R2Bucket` |
-| KV | 不可 | ソース確認 | マニフェストに KV を表現するフィールドが無い。`prepare-site-build` は未知キーを検査しないが、ホスト側が解釈しない |
-| Durable Objects | 不可 | ソース確認 | 同上。DO 名前空間の指定手段が無い |
-| Queues | 不可 | ソース確認 | 同上（producer/consumer とも不可） |
-| Cron（`triggers.crons`） | 不可（代替あり） | ソース確認 | マニフェストに triggers が無い。代わりに `create_schedule`（クラウドタスク）がある。wrangler 変換時は警告 + 続行可否フラグ |
-| Service Bindings | 不可 | ソース確認 | 同上。単一 Worker のみ |
-| Hyperdrive | 不可 | ソース確認 | 同上（TCP 前提でもあり §raw TCP も不可） |
-| WebSocket | 可 | **実測** | 公開サイトで `wss://<site>/ws` が接続し `send("hello") → echo:hello`。非公開サイトではハンドシェイクが成立しない（HTTP と同じ認可）。サブプロトコルは Worker が `Sec-WebSocket-Protocol` を返さないと失敗する |
-| raw TCP | 不可 | **実測** | `cloudflare:sockets` の `connect()` は example.com:80/443・1.1.1.1:53・127.0.0.1:80 のいずれも書き込み時に `Stream was cancelled.`。手順書の "raw TCP is unavailable" と一致 |
-| `node:` 組み込み | 可 | **実測** | ホスト側ビルドで `nodejs_compat` が有効（`node:path` の `join`/`sep` が動作）。Rolldown では `node:*` を external にして import を温存する（実測）。事前検査は警告に留める |
-| WASM | **不可** | **実測** | base64 埋め込みで単一 ESM にはできる（Rolldown の `load` フックで実測）が、実行時に `WebAssembly.instantiate(): Wasm code generation disallowed by embedder` で 500。ランタイムのコード生成が禁止されている。`.wasm` import は事前検査で**停止**する |
-| 静的資産の配信（`ASSETS` バインディング） | **可** | **実測** | `env.ASSETS` は宣言なしで存在し（`Object.keys(env)` が `["ASSETS"]`）、`ASSETS.fetch()` が `dist/client/hello.txt` を 200 で返す。`assets` は `binding: "ASSETS"` のときだけ変換可 |
-| 静的資産の配信（`dist/client`） | 可 | **実測** | Worker 型でも `dist/client/*` は 200、`/client/*` と `dist/*` 直下は 404。`ASSETS` の実体でもある。starter の README は「保証しない」立場なので、変換時に注記を出す |
-| 静的サイト配信 | 可 | ソース確認 | `static.directory` + `not_found_handling`。`dist/` へ正規化される |
-| 環境変数 | 可 | **実測** | `update_environment_variables.set_values[{key,value,is_secret,type:"envvar"}]` → `revision` が増える。反映には**再デプロイが必要**（同一 `version_id` の再デプロイで反映されることを実測） |
-| シークレット | 可 | ソース確認 | 同ツールの `is_secret: true`。取得 API は無いので CLI は値を再表示しない |
-| カスタムドメイン | 可 | **実測** | `add_custom_domain` が CNAME ターゲット + **TXT 2 本**（`_openai-site-verification`, `_cf-custom-hostname`）を返す。proxied CNAME + TXT で約 40 秒後に `active/active/active`。apex は A 2 本（`162.159.143.30`, `172.66.3.26`）+ TXT 2 本 |
-| 公開範囲 | 可 | **実測** | `update_site_access.access_mode` = `public` / `workspace_all` / `custom`（+ メール・グループ許可リスト）。既定は `custom`（匿名 401）。`public` は 40–60 秒で匿名 200、`custom` へ戻すと 45–60 秒で 401。`workspace_all` は API 受理のみ確認（実効は未検証） |
-| D1 マイグレーション適用順序 | 可 | **実測** | journal 順に適用され、適用済みは再実行されない（0000 適用 → 行 insert → 0001 適用で行が保持された）。Worker アップロード前に適用される |
-| マイグレーションのファイル名規則 | 可（drizzle-kit 準拠） | ソース確認 | `drizzle/NNNN_name.sql` + `drizzle/meta/_journal.json`。`dist/.openai/drizzle` へコピーされる。順序は journal |
-| 単一 ESM 化（Rolldown）と `cloudflare:workers` | 可 | **実測** | `external: [/^cloudflare:/, /^node:/]` を指定。未指定でも Rolldown は警告して external 扱いにする（esbuild はエラー）。バンドル後の import は `cloudflare:workers` と `node:*` のみになる |
-| サイト内 MCP サーバ | 可（但しエッジで OAuth 必須） | **実測** | `capabilities: ["mcp"]` で `has_mcp: true`、`mcp_connection` が返る。`POST /mcp` は 401 + `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp"`。バイパストークンでは通らない |
-| アナリティクス | 可 | ソース確認 | `get_site_analytics_overview` / `list_site_analytics_events` / `query_site_analytics_event` |
-| ログ | 可（pull のみ） | 実測（形状） | `get_site_worker_logs({since_minutes, limit, errors_only})` は Cloudflare のイベント形式（`$metadata`, `source.message`, `$workers.event`）。例外は `source.exception.stack` に入る。`--follow` はポーリング実装 |
-| 定期実行 | 可（Sites 流） | ソース確認 | `create_schedule` / `validate_suggested_schedule`。cron 式ではなく「タスク + リクエスト ID」 |
-| バージョン切り戻し | 可 | ソース確認 | `list_site_versions` → `deploy_site_version(version_id)`。ただし `access_mode` が `custom` 以外だと `deploy_private_site_version` は 400（実測） |
-| サイト削除 | 可 | **実測** | `delete_site` は `{project_id, was_deleted: true}` を返す。取り消し不可。削除後は `list_sites` から消え、`get_site` は 404 |
-| 一覧・所属 | 可 | **実測** | `list_sites` は `{items, cursor}`。作成後は 1 件、削除後は `{items: [], cursor: null}` |
-| slug 空き確認 | 可 | 実測 | `check_slug_availability("sites-cli-probe")` → `{available:true, status:"available"}` |
-| ローカル実行（dev） | 不可 | ソース確認 | Sites 側にローカル実行基盤は無い。wrangler プロジェクトなら `wrangler dev` を案内 |
-| プレビュー環境 | 不可 | ソース確認 | バージョンは保存できるが、公開 URL を持つのはデプロイ済みのみ |
+## 4. コマンド仕様
 
-### 3.1 実測で確定した挙動（再現手順つき）
+### `sites auth whoami`
 
-**a) 認証付き MCP 呼び出し**
+目的: どの資格情報で API を叩いているかを確認する。
 
 ```bash
-TOKEN=$(jq -r .tokens.access_token ~/.codex/auth.json)
-curl -sS -X POST https://chatgpt.com/backend-api/ps/mcp \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -H 'Accept: application/json, text/event-stream' \
-  -H "X-OpenAI-Product-Sku: codex" \
-  -H "originator: codex_cli_rs" \
-  -H "User-Agent: codex_cli_rs/0.166.0 (Linux; x86_64) rust" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sites.list_sites","arguments":{"limit":5}}}'
+sites auth whoami [--check]
 ```
 
-- **`User-Agent` が無いと Cloudflare が 403 を返す**。CLI の HTTP クライアントは UA を必ず設定する。
-- 応答は `Content-Type` に反して **SSE**（`event: message` + `data: {...}`）。`data:` 行だけを JSON として読む。
-- エラーは HTTP 200 + `result.isError: true` で返る。`structuredContent.error_code`（例 `INVALID_ARGUMENT`）と `error_data.code`（例 400）を見る。
-
-**b) バンドラの可否（`/tmp/sites-fixture`、Rolldown 1.3.0）**
-
-| 試行 | 結果 |
-| --- | --- |
-| `cloudflare:workers` を import（external 指定なし） | 警告 `Module not found, treating it as an external dependency` のうえ external 扱い（esbuild はエラー） |
-| `external: ["cloudflare:workers", "node:*"]` | 414 B の単一 ESM。`import { env } from "cloudflare:workers";` が先頭に残る |
-| `.wasm` / `.txt` を import（プラグインなし） | `[PARSE_ERROR] Invalid Character`（バイナリを JS として解釈） |
-| `load` フックで base64 → `Uint8Array` を返す | 0.36 kB の単一 ESM、追加ファイルなし |
-| `platform: "neutral"` + `node:fs` | `node:*` を external にしないと解決エラー。external なら import が温存 |
-
-**c) 実行時の挙動（使い捨てサイト、詳細は [verification-ja.md](./verification-ja.md)）**
-
-| 試行 | 結果 |
-| --- | --- |
-| ソース未 push で `save_site_version` | `CONFLICT: repository_branch_not_found` |
-| 同一 `commit_sha` で別 tar を保存 | 既存バージョンが返り、内容は更新されない（重複排除） |
-| `archive` に `"sediment://…"` 文字列 | `INVALID_ARGUMENT: Expected type ['object'], got str` |
-| デプロイ状態 | `pending` → `publishing` → `succeeded`（終端は `succeeded`） |
-| Worker + `node:path` | 200（`nodejs_compat` 有効） |
-| Worker + インライン WASM | 500 `Wasm code generation disallowed by embedder` |
-| Worker + `dist/client/extra.txt` | 200（`dist/client` は配信される） |
-| 2 版のマイグレーション | journal 順に適用、適用済みはスキップ、データ保持 |
-| 環境変数の変更のみ | 反映されない。同一バージョン再デプロイで反映 |
-| カスタムドメイン | CNAME + TXT 2 本で約 40 秒後に `active` |
-| アップロード上限 | 512 MiB ちょうど可、+1 B で `file_too_large` |
-| レート制限 | `list_sites` 30 連続で 429 なし（約 0.95 秒/回） |
-
----
-
-## 4. `cf` CLI との対応づけ
-
-### 4.1 `cf` の設計原則（実測 + 公式ドキュメント）
-
-1. **エージェント向け発見性**: ルートヘルプの冒頭で「`--help` を入れ子に辿るな」と明示し、`cf cli search` / `cf docs search` / `cf schema` を案内する。`sites` も同じ 3 点セットを用意する（タスク検索・ドキュメント検索・JSON スキーマ）。
-2. **グローバルフラグを全コマンドに持たせる**: `-q/--quiet`, `--profile`, `-m/--mode`, `--local`, `--persist-to`, `-h`, `-v`。
-3. **データ系コマンドは JSON 既定**: `cf auth list` / `cf auth whoami` は JSON を返す（`expiresAt` を含む）。
-4. **`--dry-run` をデプロイに持たせる**: `cf deploy --dry-run` はビルド + 検証のみで資格情報不要。`sites` は独立した `build` コマンドを持たないため、ビルドだけ確認したい需要も `sites deploy --dry-run` が吸収する。
-5. **設定は TypeScript**（`cloudflare.config.ts`）。`cf` は wrangler 設定を読まず、`cf migrate` での移行を強制する。
-6. **資格情報はプロファイル単位**で `~/.config/cloudflare/` に保存。
-
-### 4.2 コマンド対応表
-
-| `cf` | `sites` | 対応の性質 |
-| --- | --- | --- |
-| `cf auth login`（device/browser） | — | **非対応**。Codex のトークンをそのまま使う（`sites auth whoami` で状態確認） |
-| `cf auth whoami` | `sites auth whoami` | 同等（JSON）。`initialize` 呼び出しで疎通確認も行う |
-| `cf auth list` / `logout` | — | **非対応**。資格情報は Codex のものが唯一（プロファイル概念を持たない） |
-| `cf init [dir]` | `sites init [dir] --template static\|worker-esm` | 同等（雛形はプラグインの starter を流用） |
-| `cf build [--dry-run]` | — | **非対応**。ビルドは `deploy` の内部処理で、確認だけなら `sites deploy --dry-run` |
-| `cf deploy [--dry-run] [--message] [--tag]` | `sites deploy [--dry-run] [--message] [--tag]` | 同等 + Sites 固有（バージョン保存・公開範囲）。`--dry-run` はビルド + 事前検査のみ |
-| `cf deploy --secrets-file` | `sites deploy --env-file` | 同等（Sites は env ツール経由） |
-| `cf workers versions list` | `sites versions list` | 同等 |
-| — | `sites versions rollback <version>` | Sites 固有（`deploy_site_version`） |
-| `cf workers deployments list` | `sites status` | 部分対応（直近デプロイの状態のみ） |
-| `cf logs retrieve` / `cf o11y telemetry live-tail` | `sites logs [--follow]` | 部分対応（pull のみ、`--follow` はポーリング） |
-| `cf create`（リソース作成） | `sites create <slug>` | 意味が違う。Sites はサイト作成 |
-| `cf delete` | `sites delete` | 同等（`--yes` 必須） |
-| `cf dev` | — | **非対応**。`wrangler dev` を案内 |
-| `cf previews deploy` | — | **非対応**（プレビュー環境が無い） |
-| `cf migrate` | — | **非対応**。`sites` は wrangler 設定をその場で読む |
-| `cf cli search` / `cf docs search` / `cf schema` | `sites cli search` / `sites docs search` / `sites schema` | 同等（自前データで実装） |
-| — | `sites info` / `env` / `domains` / `access` / `analytics` / `open` / `doctor` | Sites 固有 |
-
-### 4.3 模倣する具体仕様
-
-**グローバルフラグ**（`cf` に合わせ、足りないものだけ追加）
-
-```
--q, --quiet            進捗・装飾出力を抑制（結果のみ）
-    --json             JSON 出力（cf のデータ系既定に合わせた明示版）
-    --profile <name>   資格情報プロファイル（既定 "default"）
-    --no-color         ANSI 色を無効化
--y, --yes              確認プロンプトを省略
--h, --help
--v, --version
-```
-
-`cf` の `--local` / `--persist-to` / `-z` は Sites に対応概念がないため**採用しない**（受け取ったら「未対応」で exit 2）。
-
-**出力の作法**
-
-- 進捗・警告・エラーは **stderr**、結果は **stdout**。
-- 既定は人間向け、`--json` は機械向け（`{"ok":true,...}` 封筒）。
-- `--quiet` は人間向け出力のうち進捗行のみ抑制し、最終結果 1 行は残す。
-- 破壊的操作（`delete`, `rollback`, `access set`）は `--yes` が無ければ TTY で確認、非 TTY では exit 2。
-
-**エラー表示**（`cf` の 1 行サマリ + 詳細の方針を踏襲）
-
-```
-Error: Preflight failed: unsupported binding "MY_KV" (kv_namespaces)
-  hint: Sites supports only D1 and R2 bindings. Remove the binding or use --allow-unsupported to continue without it.
-  docs: https://…/sites/bindings
-```
-
-`--json` 時:
+`--check` は `initialize` を 1 回叩いて疎通まで確認する（既定はローカルの期限情報のみ）。
 
 ```json
-{"ok":false,"error":{"code":"PREFLIGHT_UNSUPPORTED_BINDING","message":"...","hint":"...","details":{"binding":"MY_KV","kind":"kv_namespaces"}}}
+{ "ok": true, "data": { "source": "~/.codex/auth.json", "account_id": "…", "expires_at": "2026-11-17T12:00:00.000Z", "refresh_token_present": true, "server": { "name": "plugin-runtime", "version": "0.1.0" } } }
 ```
 
-**終了コード**
+```text
+認証: ~/.codex/auth.json（Codex CLI と共通）
+有効期限: 2026-11-17 12:00 JST
+サーバ: plugin-runtime 0.1.0
+```
 
-| code | 意味 |
+終了コード: 0 / 3（認証なし・リフレッシュ失敗）/ 4（`--check` の通信失敗）。
+エラー: `Error: Codex credentials not found at ~/.codex/auth.json` → `codex login` を実行する。
+
+### `sites init [dir]`
+
+目的: デプロイ可能な最小構成を作る。
+
+```bash
+sites init [dir] --template static|worker-esm [--force] [--no-git]
+```
+
+作られるもの: `.openai/hosting.json`（`project_id: null`）、`public/index.html` または `worker/index.js`、`package.json`（`build` スクリプトのみ）、`.gitignore`（`dist/` と `.sites/` を除外）。
+
+終了コード: 0 / 2（未知のテンプレート）/ 5（既存ファイルあり、`--force` なし）。
+cf との差分: `cf init` の `cloudflare.config.ts` / Vite 前提の雛形とは異なり、Sites のマニフェストと `dist/` 契約に合わせる。`--install` / `--package-manager` は無い（依存を持たない）。
+
+### `sites create <slug>`
+
+目的: サイトを作り、`project_id` を `hosting.json` に書き込む。
+
+```bash
+sites create <slug> [--title <title>] [--private|--public|--workspace] [--description <text>] [--dry-run]
+```
+
+処理: `check_slug_availability` → `create_site` → 戻り値の **`id`**（`appgprj_…`）を `project_id` として保存 →（戻り値に `source_repository_credential` が無ければ）`create_source_repository_write_credential`。**既定は private**（`custom`）。
+
+```json
+{ "ok": true, "data": { "project_id": "appgprj_…", "slug": "my-site", "access_mode": "custom", "url": "https://my-site.bouncy-leaf-5317.chatgpt.site", "source": { "remote_url": "https://git.chatgpt-team.site/…/….git", "branch": "main" } } }
+```
+
+```text
+✓ サイトを作成しました: my-site
+  URL: https://my-site.bouncy-leaf-5317.chatgpt.site
+  公開範囲: private（自分のみ）
+次の手順: sites deploy
+```
+
+終了コード: 0 / 3 / 4 / 6（slug 使用済み）/ 5（既に `project_id` がある）。
+同一サイトを二重に作らないこと。`hosting.json` に `project_id` がある状態で `create` を呼んだら停止する。
+
+### `sites list`
+
+```bash
+sites list [--limit 20] [--cursor <cursor>] [--role owner|editor|viewer] [--all]
+```
+
+`list_sites` を呼ぶ。0 件は成功（`items: []`）。`--all` は `limit 100` で `cursor` を辿る。
+
+```json
+{ "ok": true, "data": { "items": [{ "project_id": "appgprj_…", "slug": "my-site", "access_mode": "custom", "updated_at": "2026-11-07T03:12:44.000Z" }], "cursor": null } }
+```
+
+終了コード: 0 / 2（`--limit` 範囲外）/ 3 / 4（429 が 3 回再試行後も続く）。
+
+### `sites info`
+
+```bash
+sites info [<project_id|slug>] [--mcp]
+```
+
+`get_site` に加え、必要なら `list_site_versions`（`limit 1`）と `list_custom_domains` を呼ぶ。`get_site` の `url` は `null` のことがある（`expected_url` は `create_site` のときだけ返る）。
+
+終了コード: 0 / 2 / 3 / 4 / 5（`hosting.json` が無い）。
+
+### `sites deploy`
+
+目的: ビルド → 事前検査 → ソース同期 → パッケージ → アップロード → 保存 → デプロイを 1 コマンドで行う。
+
+```bash
+sites deploy [--dry-run] [--no-build-script] [--message <text>] [--tag <tag>] \
+             [--private|--public|--workspace] [--env-file <path>] \
+             [--no-source-sync] [--allow-dirty] [--allow-unsupported <kind,…>] [--timeout <sec>]
+```
+
+| フラグ | 意味 | 既定 |
+| --- | --- | --- |
+| `--dry-run` | ビルドと事前検査のみ。資格情報も不要 | off |
+| `--no-build-script` | `package.json` の `build` を実行しない | off |
+| `--message` | git のコミットメッセージ兼バージョン説明 | `Update Site source` |
+| `--tag` | ローカル表示用の識別子（API には送らない） | なし |
+| `--private` / `--public` / `--workspace` | デプロイ後の公開範囲 | 変更しない（新規は private） |
+| `--env-file` | `KEY=VALUE` を読み、差分を反映 | なし |
+| `--no-source-sync` | ソース同期を省略（通常は非推奨） | off |
+| `--allow-dirty` | 未コミット変更を許容 | off |
+| `--allow-unsupported` | 停止判定を警告へ格下げ | なし |
+| `--timeout` | 完了待ちの秒数 | 300 |
+
+内部手順は §5.1。出力例:
+
+```text
+[1/7] Preflight      ok (worker site, d1=DB)
+[2/7] Build          ok (dist/server/index.js, 1.3 kB)
+[3/7] Source sync    ok (6f4a231e → main)
+[4/7] Package        ok (10.2 kB, 3 files)
+[5/7] Upload         ok
+[6/7] Save version   ok (v4)
+[7/7] Deploy         publishing…
+```
+
+```text
+✓ Deployed https://my-site.bouncy-leaf-5317.chatgpt.site (28.4s, version 4, deployment appgdep_…)
+```
+
+```json
+{ "ok": true, "data": { "project_id": "appgprj_…", "version_id": "appgprj_…~appgver_…", "version_number": 4, "deployment_id": "appgdep_…", "status": "succeeded", "url": "https://my-site.bouncy-leaf-5317.chatgpt.site", "commit_sha": "6f4a231e…", "access_mode": "custom" } }
+```
+
+終了コード: 0 / 3 / 4 / 5 / 6 / 130。
+
+| 状況 | `code` | 対処 |
+| --- | --- | --- |
+| 非対応バインディング | `PREFLIGHT_UNSUPPORTED_BINDING` | 削除する。警告扱いは `--allow-unsupported kv` |
+| 未コミット変更 | `CONFLICT_DIRTY_TREE` | コミットするか `--allow-dirty` |
+| 履歴の分岐 | `CONFLICT_DIVERGED` | `sites doctor --fix-git` の案内に従う（強制 push しない） |
+| 上限超過 | `PREFLIGHT_ARCHIVE_TOO_LARGE` | 512 MiB 未満にする |
+| デプロイ失敗 | `DEPLOY_FAILED` | `sites logs --errors-only` |
+| タイムアウト | `DEPLOY_TIMEOUT` | `sites status <deployment_id>` |
+
+注記: `--dry-run` は資格情報を要求しない（`cf build` と同じ思想）。`--public` を付けたデプロイは確認を挟む（`-y` で省略）。デプロイは取り消せない。
+
+### `sites status`
+
+```bash
+sites status [<deployment_id>] [--watch] [--interval 3] [--timeout 300]
+```
+
+`get_deployment_status` を `pending` / `publishing` の間だけポーリングする。引数省略時は `.sites/state.json` の最新 ID。
+
+```json
+{ "ok": true, "data": { "deployment_id": "appgdep_…", "status": "failed", "url": null, "failure_message": "Uncaught SyntaxError: Unexpected end of input\n  at dist/server/index.js:3\n", "env_set_revision": 0 } }
+```
+
+終了コード: 0（`succeeded`）/ 1（`failed` / `error`）/ 4 / 5。
+cf との差分: 状態名は `pending` → `publishing` → `succeeded` / `failed` / `error` で、`cf` の `active` とは語彙が違う。
+
+### `sites logs`
+
+```bash
+sites logs [--since 30m] [--limit 100] [--errors-only|--all] [--follow]
+```
+
+`get_site_worker_logs` を呼ぶ。`--follow` は 5 秒間隔のポーリング（API に live-tail は無い）。イベント 0 件は成功。レート制限に当たったら間隔を 2 倍に広げる（最大 60 秒）。
+終了コード: 0 / 3 / 4 / 130。
+
+### `sites versions`
+
+```bash
+sites versions list [--limit 20] [--cursor <c>]
+sites versions show <version_id>
+sites versions rollback <version_id|--previous> [--yes]
+```
+
+`list_site_versions` / `get_site_version`。`rollback` は対象バージョンを現行の `access_mode` に応じた `deploy_*_site_version` で再デプロイする（新バージョンは作らない）。
+終了コード: 0 / 4 / 5 / 6（公開中サイトに private 系を使おうとした → 400 `site_not_owner_only`）。
+
+### `sites env`
+
+```bash
+sites env list
+sites env get <KEY>
+sites env set <KEY>=<VALUE> [--secret]
+sites env unset <KEY>
+sites env pull [--out .env]
+sites env push [--env-file .env] [--dry-run]
+```
+
+`get_environment` / `update_environment_variables`。`set_values` は `{key, value, is_secret, type:"envvar"}`、削除は `remove`。
+**変更は次のデプロイで反映される。`env set` は自動で再デプロイしない。** 秘密値は読み戻せない（常に `null`）。
+終了コード: 0 / 2 / 3 / 4 / 5（秘密値の取得要求）。
+
+### `sites access`
+
+```bash
+sites access show
+sites access set --private|--public|--workspace [--allow-email <addr>]… [--wait] [--timeout 120]
+```
+
+`update_site_access`。反映には 40〜60 秒かかる（実測）。`--wait` は切り替わるまで最大 `--timeout` 待つ。
+`workspace_all` は API が受理するが `available_access_modes` に出ないことがあり、実効性は組織構成に依存する（未確認）。
+終了コード: 0 / 2 / 3 / 4 / 5（`--allow-email` と public の併用）。
+
+### `sites domains`
+
+```bash
+sites domains add <hostname> [--wait] [--timeout 900]
+sites domains list
+sites domains refresh <hostname|custom_domain_id>
+sites domains remove <hostname|custom_domain_id>
+```
+
+`add_custom_domain` → 検証レコードを表示 → `refresh_custom_domain_status` で `active` を確認。DNS レコードの作成は自動化しない。
+終了コード: 0 / 3 / 4 / 5（ホスト名が不正）/ 6（他サイトで使用中）。
+
+### `sites analytics`
+
+```bash
+sites analytics summary [--since 24h] [--view classic|list]
+sites analytics events [--since 24h]
+```
+
+`get_site_analytics_overview`。境界は UTC-08:00 基準の 1 時間バケットに丸める（丸めないと `invalid_analytics_overview_query`）。新規イベントの反映は最大 1 時間。
+終了コード: 0 / 2 / 3 / 4。
+
+### `sites open`
+
+`sites open [<project_id|slug>] [--path /foo] [--print]`。`--print` は URL を 1 行だけ stdout に出す。終了コード: 0 / 4 / 5。
+
+### `sites delete`
+
+`sites delete [<project_id|slug>] [--yes]`。`delete_site` を呼ぶ。**取り消せない。** 非 TTY では `--yes` 必須。削除後は `list_sites` から消える。
+終了コード: 0 / 2 / 3 / 4 / 5。
+
+### `sites doctor`
+
+`sites doctor [--offline] [--fix-git] [--verbose]`。次の 12 項目を検査する。
+
+| # | 検査 | 失敗時の意味 |
+| --- | --- | --- |
+| 1 | Node のバージョン（>= 22.13） | 実行環境が古い |
+| 2 | `~/.codex/auth.json` の存在と期限 | 認証不能 |
+| 3 | `initialize` の疎通（`plugin-runtime`） | エンドポイント変更・UA 不足 |
+| 4 | `hosting.json` の妥当性 | ホワイトリスト違反 |
+| 5 | `project_id` と API 側の一致 | 別アカウント・削除済み |
+| 6 | wrangler の非対応要素 | 変換で停止する |
+| 7 | `dist/` とマニフェストの整合 | アップロードで失敗する |
+| 8 | 未コミット変更・履歴の分岐 | `commit_sha` が進まない |
+| 9 | `git` の有無 | ソース同期不能 |
+| 10 | `package.json` の `build` | ビルド不能 |
+| 11 | 直近の 429 | 一時的な失敗 |
+| 12 | `.sites/state.json` と実デプロイの一致 | `status` が古い |
+
+終了コード: 0（ok / warn のみ）/ 1（fail あり）。
+
+### `sites cli search` / `sites docs search` / `sites schema`
+
+```bash
+sites cli search "<task>"       # コマンド候補を最大 5 件、JSON で
+sites docs search "<question>"  # docs/ 配下の Markdown から該当節を返す
+sites schema [<tool>]           # MCP ツールの入力スキーマをダンプ
+```
+
+`cf` はネストした `--help` 探索を禁じ、`cli search` を推奨している。`sites` も同じ方針を取る。終了コード: 0 / 2（クエリ空）/ 4（`schema` の通信失敗）。
+
+## 5. デプロイ仕様
+
+### 5.1 手順
+
+1. プロジェクト解決（`hosting.json` → 無ければ §7 の変換）。
+2. 事前検査（非対応バインディング、上限、未コミット変更、`commit_sha` の再利用）。
+3. ビルド（`package.json` の `build`。無ければ静的はコピー、Worker は Rolldown）。
+4. 成果物の検証（`dist/server/index.js` か `dist/index.html`、マニフェストの整合、単一 ESM 条件）。
+5. `--dry-run` なら終了（0）。
+6. 認証解決と `initialize`。
+7. ソース同期（下記）。
+8. tar 作成（root は `dist/`、リポジトリ外か git 管理外の `outputs/` に置く）。
+9. アップロード 3 段階（下記）。
+10. `save_site_version`（`archive` はオブジェクト、`commit_sha` は必須）。
+11. 公開範囲に応じて `deploy_private_site_version`（`custom`）か `deploy_site_version`（それ以外）を選ぶ。
+12. `get_deployment_status` を終端までポーリング。
+
+ソース同期: `git init --initial-branch <branch>` → `ls-remote` → `fetch --no-tags` → 作業ツリーのコピーを重ねる → コミット（`Update Site source`）→ `push` → `ls-remote` で一致確認 → `status --porcelain` が空であることを確認。一致しなければ「Site source changed while saving」で終了コード 6。
+
+認証付き git の作法:
+
+- `GIT_TERMINAL_PROMPT=0`、`-c credential.helper= -c http.extraHeader= -c http.followRedirects=false`
+- トークンは `--config-env=http.<remote_url>.extraHeader=SITES_GIT_AUTHORIZATION` で渡す（argv に出さない）。env の値は `Authorization: Bearer <token>`。
+- stderr はトークン文字列を `[redacted]` に置換してから表示する。
+- 非 HTTPS の remote、資格情報入り URL、期限切れトークンは拒否する。
+
+アップロード 3 段階:
+
+1. `POST /backend-api/files`（`file_name` / `file_size` / `use_case:"codex"` / `codex_connector_id` / `codex_action_name` / `codex_model`）→ `file_id` と `upload_url`。
+2. `PUT <upload_url>`（`x-ms-blob-type: BlockBlob`、認証ヘッダ無し）→ 201。502/503/504 は最大 5 回再試行。
+3. `POST /backend-api/files/<file_id>/uploaded` → `status: success` または `retry`（250 ms 間隔で最大 30 秒）→ `{ download_url, file_id, mime_type, file_name, file_size_bytes }`。
+
+`upload_url` はログに出さない。`archive` にはこのオブジェクトを渡す（文字列 `sediment://…` は `Expected type ['object']` で拒否される）。
+
+### 5.2 archive 契約
+
+- ルートは `dist/` 固定。中身は `dist/server/index.js`（Worker）または `dist/index.html`（静的）と `dist/.openai/hosting.json`、必要なら `dist/.openai/drizzle/`。
+- シンボリックリンク・特殊ファイルは不可。
+- 静的サイトでは manifest の `static.directory` を `"dist"` に書き換えて同梱する。
+- Worker サイトに `static` を残すのはエラー。静的サイトに `d1` / `r2` / `capabilities` / マイグレーションを併記するのもエラー（保存は通るがデプロイが失敗する）。
+- 上限は 512 MiB（536,870,912 B）。tar 前に合計サイズで検査する。
+
+### 5.3 バージョンと `commit_sha`
+
+- `save_site_version` は `commit_sha` で重複排除する。**同じ commit で別の archive を保存すると、古いバージョンがそのまま返る**（実測）。成果物が変わったら空コミットで sha を進める。
+- バージョン ID は `appgprj_…~appgver_…` 形式。`version_number` は 1 から単調増加。
+- ソースの push は保存の前提条件。push していないと `repository_branch_not_found` で失敗する。
+
+### 5.4 状態遷移
+
+`deploy_*` の戻り値は `status: pending`、`url: null`。ポーリングで `pending` → `publishing` → `succeeded`（または `failed` / `error`）。実測では 0.6〜10 秒で完了した。終端は `succeeded` で、`deployed` ではない。
+
+### 5.5 失敗時
+
+`status: failed` になると `url` は `null` で、`failure_message` に生のエラーが入る。
+
+| 失敗の種類 | `failure_message` の例 |
 | --- | --- |
-| 0 | 成功 |
-| 1 | 一般エラー |
-| 2 | 使い方の誤り（未知フラグ・必須引数不足・非 TTY での確認） |
-| 3 | 認証エラー（トークン無効・期限切れ・更新失敗） |
-| 4 | 通信/サーバエラー（5xx、タイムアウト、SSE 不正） |
-| 5 | 事前検査・変換の失敗（未対応バインディング、静的/Worker 混在など） |
-| 6 | 状態競合（git 分岐、保存中の変更検知） |
-| 130 | Ctrl-C |
+| 構文エラー | `Uncaught SyntaxError: Unexpected end of input\n  at dist/server/index.js:3\n` |
+| 未解決 import | `Uncaught Error: No such module "dist/server/missing-module.js".\n  imported from "dist/server/index.js"` |
+| SQL エラー | `no such table: v: SQLITE_ERROR` |
+| static + バインディング | `Static-only site bundles cannot use runtime resource bindings, capabilities, or database migrations. …` |
 
----
+`status` コマンドはこの文字列をそのまま表示し、終了コード 1 を返す。
 
-## 5. `sites` CLI 仕様
+## 6. プラットフォーム仕様
 
-### 5.1 技術選定
+### 6.1 接続
 
-| 項目 | 決定 | 理由 |
+- エンドポイント: `POST https://chatgpt.com/backend-api/ps/mcp`。
+- 必須ヘッダ: `Authorization: Bearer <access_token>`、`Content-Type: application/json`、`Accept: application/json, text/event-stream`、`X-OpenAI-Product-Sku: codex`、`originator: codex_cli_rs`、`User-Agent: codex_cli_rs/<version> (Linux; x86_64) rust`。**UA が無いと Cloudflare が 403 を返す。**
+- 応答は SSE（`event: message` + `data: {...}`）。JSON がそのまま返る場合もあるため両方を受ける。
+- `initialize` は `protocolVersion: "2025-03-26"` を送る。`serverInfo` が `{"name":"plugin-runtime","version":"0.1.0"}`。
+- ステートレス（`Mcp-Session-Id` は不要）。ツール呼び出しは `{"jsonrpc":"2.0","id":…,"method":"tools/call","params":{"name":"sites.x","arguments":{…}}}`。
+- エラーは `isError: true` と `structuredContent.error`（`SitesConnectorError: …`）、`error_code`（`INVALID_ARGUMENT` / `CONFLICT` / `NOT_FOUND`）、`error_data.type` を返す。
+
+### 6.2 マニフェスト（`.openai/hosting.json`）
+
+| キー | 型 | 内容 |
 | --- | --- | --- |
-| 言語 | TypeScript（ESM） | `cf` / wrangler と同じ。Rolldown の API を直接使える |
-| 実行環境 | Node.js >= 22.13 | 雛形の `engines` と `cf` の要求に合わせる。`fetch` / `AbortSignal.timeout` を標準で使う |
-| HTTP | 標準 `fetch` | 依存を増やさない。SSE は `response.body` を `TextDecoderStream` で読む |
-| CLI パーサ | `commander` | サブコマンド + グローバルフラグ + ヘルプ生成が十分。自前実装は避ける |
-| バンドラ | `rolldown` | 実測済み（1.3.0）。`cloudflare:workers` / `node:*` を external にしやすく、CLI 自身のバンドルにも同じものを使える |
-| アーカイブ | `tar`（npm） | プラグインはシステム `tar` を呼ぶが、Windows での差異を避けるためライブラリ化 |
-| TOML | `smol-toml` | `wrangler.toml` の読み取りのみ |
-| JSONC | `jsonc-parser` | `wrangler.jsonc` のコメント・末尾カンマ対応 |
-| ESM 検査 | `es-module-lexer` | 出力の import 一覧を検証（許可リスト方式） |
-| 色 | `picocolors` | 小さく、`--no-color`/`NO_COLOR` 対応が容易 |
-| テスト | `vitest` | 単体 + フェイク MCP サーバ |
+| `project_id` | string | `create_site` の `id`。作り直さない |
+| `static` | object \| null | `{ "directory": "dist" \| "dist/client" \| "out" \| "build" \| ".output/public", "not_found_handling": "none" \| "404-page" \| "single-page-application" }` |
+| `d1` | string \| null | D1 のバインディング名（例 `DB`） |
+| `r2` | string \| null | R2 のバインディング名（例 `BUCKET`） |
+| `capabilities` | array | `"mcp"` のみ |
+| `plugins` / `connectors` | array | 予約 |
 
-**依存方針**: 実行時依存は上記 7 個まで。`wrangler` には依存しない（変換は自前、ビルドは `package.json` のスクリプトを実行）。
+ホワイトリスト外のキーは保存時に `Invalid dist/.openai/hosting.json: Extra inputs are not permitted` で拒否される。秘密値は置かない。
 
-### 5.2 設定と状態
+### 6.3 成果物と配信
 
-| パス | 内容 | 権限 |
+- Worker サイトでは `dist/client/` が資産のルート。`/hello.txt` → `dist/client/hello.txt`。`dist/` 直下のファイルは配信されない。
+- `env.ASSETS` は宣言なしで常に注入され、`ASSETS.fetch(new Request("https://<site>/hello.txt"))` が 200 を返す。`ASSETS` を未使用でも `keys` に現れる。
+- 静的サイトは `static.directory` 配下をそのまま配信する。`/index.html` は 307 で `/` に寄る。
+- 非公開サイトへの匿名アクセスは 401（ChatGPT のサインイン画面）。`OAI-Sites-Authorization: Bearer <siwc_bypass_bearer_token>` を付けると本文を取得できる（`generate_siwc_bypass_token` で発行）。
+
+### 6.4 実行環境の制約
+
+| 項目 | 可否 | 備考 |
 | --- | --- | --- |
-| `~/.codex/auth.json` | Codex の資格情報（`tokens.access_token` / `refresh_token` / `account_id`）。**読み取りと書き戻しのみ** | 0600（Codex が管理） |
-| `~/.config/sites/config.json` | 既定プロファイル、既定の公開範囲、`api_base` | 0644 |
-| `<project>/.openai/hosting.json` | `project_id` / `static` / `d1` / `r2` / `capabilities` | リポジトリ管理（コミットする） |
-| `<project>/.sites/state.json` | 直近の `deployment_id` / `version_id` / `commit_sha` | git 管理外（`.gitignore`） |
+| WebSocket | 可 | `wss://` で双方向。サブプロトコルの折り返しは Worker 側で行う |
+| raw TCP（`cloudflare:sockets`） | 不可 | `connect()` は `Stream was cancelled.` で失敗 |
+| WASM（実行時コンパイル） | 不可 | `WebAssembly.instantiate(): Wasm code generation disallowed by embedder` |
+| `node:` 組み込み | 可 | `nodejs_compat` が有効（`join` / `sep` 等が動く） |
+| isolate メモリ | 128 MB | 超過は実行時エラー |
 
-`cf` の `~/.config/cloudflare/{config,state,registry}` にならい**プロジェクト状態を分離**する。ただし**資格情報は自前で持たない**。Codex が管理する `~/.codex/auth.json` を唯一の真実とし、`sites` は `~/.config/sites/config.json`（既定値）と `<project>/.sites/state.json`（進行状態）だけを持つ。プロジェクト識別子は `cf` の `cloudflare.config.ts` に相当するものとして `.openai/hosting.json` を唯一の真実とする。
+### 6.5 D1
 
-### 5.3 認証
+- `hosting.json` の `d1` にバインディング名を書くと `env.<name>` で使える。データは移行されない（新規 DB）。
+- マイグレーションは `dist/.openai/drizzle/**.sql`。**Worker のアップロード前に適用される。**
+- 適用順は**ファイル名の文字列順**。`1_` と `10_` を混在させると `10_` が先に走る。`0001_` のようにゼロ埋めする。
+- 適用済みは `__appgarden_migrations(id, name, applied_at)` に記録され、同名は飛ばされる。
+- `meta/_journal.json` が無くても適用される（順序の制御はファイル名のみ）。
+- スキーマ変更のみ可（データのバックフィル不可）。追加カラムの既定値は定数、`NOT NULL` には非 NULL の定数既定値が必要。
 
-`sites` は**独自のログイン機構を持たない**。Codex がすでに持っている資格情報をそのまま使う。
+### 6.6 環境変数とシークレット
 
-```
-$ sites auth whoami [--json]
-✓ Codex credentials: hayato@example.com (account_id: 79…)
-✓ MCP: plugin-runtime 0.1.0 (initialized)
-  アクセストークン有効期限（推定）: あと 9 日
-```
+- `update_environment_variables` で `set_values`（`{key, value, is_secret, type:"envvar"}`）と `remove` を渡す。戻り値は `revision`。
+- **反映には再デプロイが必要。** 同じバージョンを `deploy_*` し直すと新しい revision が適用される。
+- 秘密値は読み戻せない（`value: null`）。
 
-- 読み取り元は `~/.codex/auth.json`（`$CODEX_HOME/auth.json` があれば優先）。`tokens.access_token` を `Authorization: Bearer` に使う。
-- `SITES_ACCESS_TOKEN` 環境変数があればそれを最優先（CI 用）。この場合リフレッシュも書き戻しも行わない。
-- **`sites auth login` / `logout` / `list` は作らない**。資格情報の管理は Codex の責任範囲であり、二重管理は事故のもとになる。存在しないサブコマンドを案内しない（`sites auth --help` には `whoami` だけを出す）。
-- 認証の検証は `initialize` を 1 回呼び、`serverInfo.name == "plugin-runtime"` を確認する。失敗時 exit 3。
+### 6.7 公開範囲
 
-**自動リフレッシュ（実測済み）**
+- `update_site_access` の `access_mode` は `custom`（既定・自分のみ）/ `public` / `workspace_all`。
+- 反映には 40〜60 秒かかる。変更直後は 401 が続く。
+- 公開中は `deploy_private_site_version` が 400 `site_not_owner_only` になる。`access_mode` を見てデプロイツールを選ぶこと。
+- `deploy_public_site_version` というツールは存在しない（`deploy_site_version` を使う）。
 
-```
-POST https://auth.openai.com/oauth/token
-Content-Type: application/x-www-form-urlencoded
+### 6.8 カスタムドメイン
 
-grant_type=refresh_token
-&refresh_token=<auth.json の tokens.refresh_token>
-&client_id=app_EMoamEEZ73f0CkXaXp7hrann
-```
+サブドメイン:
 
-- 応答: `{access_token, token_type, expires_in: 864000, scope, id_token, earliest_refresh_at, refresh_token}`。**リフレッシュトークンはローテーションされる**ので、返ってきた `refresh_token` / `id_token` を必ず保存する。
-- 起動時に `last_refresh` + `expires_in` から余裕（24 時間）を引いた時刻を過ぎていれば更新する。401 を受けた場合も 1 回だけ更新して再試行する。
-- 書き戻しは **一時ファイル + `rename`**（`mode 0600`）。`auth_mode` / `OPENAI_API_KEY` / `tokens.account_id` など未知のキーは保持し、`last_refresh` だけ更新する。書き戻しに失敗した場合は「トークンは更新されたが保存できなかった」と警告し、処理は続行する（次回また更新される）。
-- 更新に失敗したら exit 3 で「`codex login` を再実行してください」と案内する。
-
-### 5.4 コマンド詳細
-
-以下、`<pid>` は `.openai/hosting.json` の `project_id`。
-
-#### `sites init [dir] --template static|worker-esm`
-
-- ローカル: プラグインの `templates/worker-esm-starter` 相当を展開し、`.openai/hosting.json` に `{"d1":null,"r2":null}` を書く。`worker-esm` は `dist/server/index.js` + `.openai/hosting.json` を出力する `build.sh` 相当も生成。
-- MCP: 呼ばない（`project_id` は `sites create` で入れる）。
-- 出力: `Created worker-esm project in ./my-site`。
-
-#### `sites create <slug> [--title <t>] [--public|--workspace|--private]`
-
-- ローカル: `check_slug_availability` で事前確認 → 正規化（下記）→ `create_site` → 返った **`id`**（= `project_id`）を `.openai/hosting.json` に**アトミックに**書き込む（temp + rename）→ `source_repository_credential` の `remote_url` / `branch` を `.sites/state.json` に保存（**`token` は保存しない**）。
-- 出力:
-
-```
-✓ Slug "my-site" is available
-✓ Created site: My Site
-  project_id: appgprj_abc123
-  url:        https://my-site.bouncy-leaf-5317.chatgpt.site
-  source:     main → git.chatgpt-team.site/…/appgprj_abc123.git
-  next:       sites deploy
-```
-
-- `expected_url` は`create_site` のときだけ返る（`get_site` では `null`）。URL はデプロイ完了まで確定しないため、出力では「予定」と明記する。
-
-- slug 正規化: 小文字化 → 英数字とハイフン以外をハイフンに → 連続ハイフンを 1 つに → 先頭の非英字を除去 → 末尾ハイフン除去。空になったら exit 2。`--slug` 指定時は正規化せず検証のみ。
-
-#### `sites list [--limit 20] [--cursor <c>] [--role owner|editor|viewer]`
-
-- MCP: `list_sites`。ローカル処理なし。
-- 出力（表）:
-
-```
-SLUG            TITLE          ACCESS     UPDATED
-my-site         My Site        private    2026-11-07 10:12
-demo            Demo           public     2026-11-06 18:40
-```
-
-#### `sites info [--project <id>]`
-
-- MCP: `get_site`（`include_mcp_connection` は `--mcp` 指定時のみ）。
-- 出力: `project_id` / `slug` / `title` / `access_mode` / `url` / `d1` / `r2` / `capabilities` / 直近デプロイ。
-
-#### `sites deploy`
-
-重要コマンド。**ビルドも deploy の内部で行う**（独立した `build` コマンドは持たない）。`cf deploy` と同じく、ビルド → 検証 → ソース同期 → アップロード → デプロイ → 状態確認の順で進み、各段階を 1 行で表示する。ビルドだけ確認したい場合は `--dry-run` を使う。
-
-```
-$ sites deploy --message "Fix header parsing" --tag v1.2.0
-
-→ Preflight            ok (worker, d1=DB, r2=-)
-→ Build                ok (dist/server/index.js, 41.2 kB)
-→ Source sync          ok (a1b2c3d, 3 files)
-→ Package              ok (site.tar.gz, 44.8 kB)
-→ Upload               ok (file_9f2c…)
-→ Save version         ok (version_7d1e…)
-→ Deploy               ok (deployment_5c3a…)
-✓ Deployed https://my-site.bouncy-leaf-5317.chatgpt.site  (28.4s)
-```
-
-フラグ:
-
-| フラグ | 既定 | 説明 |
+| 種別 | 名前 | 値 |
 | --- | --- | --- |
-| `--dry-run` | false | **ビルド + 事前検査のみ**。MCP を呼ばず、資格情報も不要。生成予定ファイル一覧と検査結果を表示する（`sites deploy --dry-run` でビルドのみ検証できる） |
-| `--no-build-script` | false | `package.json` の `build` スクリプトを実行しない |
-| `--message <m>` | 自動 | git コミットメッセージ。既定は変更ファイルの要約 |
-| `--tag <t>` | なし | バージョンの識別子として表示・保存（`list_site_versions` のメモには使えないため `.sites/state.json` に保持） |
-| `--private` / `--public` / `--workspace` | 設定 or `private` | デプロイ後の公開範囲。`deploy_private_site_version` と `deploy_site_version` の選択に使う |
-| `--env-file <path>` | なし | `.env` を読み、差分を `update_environment_variables` で反映（反映後に再デプロイが必要な旨を警告） |
-| `--no-source-sync` | false | git push をスキップする上級者向けフラグ。**既に同じ HEAD を push 済み**の場合のみ有効（未 push だと `save_site_version` が `repository_branch_not_found` で失敗する）。`--allow-dirty` との併用は exit 2 |
-| `--allow-dirty` | false | 未コミット変更を許容（既定は exit 6） |
-| `--allow-unsupported <kind,...>` | なし | 未対応バインディングを**落として**続行（明示時のみ） |
-| `--timeout <sec>` | 300 | デプロイ状態のポーリング上限 |
+| CNAME（proxied） | `my-site.example.com` | `custom-domains.chatgpt.site` |
+| TXT | `_openai-site-verification.my-site.example.com` | `openai-site-verification=…` |
+| TXT | `_cf-custom-hostname.my-site.example.com` | `…` |
 
-内部シーケンス（実装順）:
+apex:
 
-1. `.openai/hosting.json` 解決。無ければ wrangler 変換モード（§6）。
-2. ビルド（§6.5）: `package.json` の `build` 実行 → 成果物を `dist/` に組み立て → `dist/.openai/hosting.json` と `drizzle/` を同梱。
-3. 事前検査（§6.3）を再実行。
-4. `--dry-run` ならここで終了（exit 0/5）。**ここまで MCP を呼ばない。**
-5. git: 未コミットがあれば `--allow-dirty` を要求。`remote_url` が未取得なら `create_source_repository_write_credential`（毎回取り直す。10 分で失効する）。
-6. `git add -A` → 差分があればコミット。差分が無くても**成果物ハッシュが前回と違う場合は `--allow-empty` でコミットを作る**（同じ `commit_sha` では `save_site_version` が重複排除され、新しい内容が反映されないため）。push 後 `ls-remote` で一致確認。
-7. `dist/` を tar.gz 化（一時ディレクトリ、チェックアウト外）。512 MiB を超えたら exit 2。
-8. 添付 3 段階（§5.5）→ `{download_url, file_id, mime_type, file_name}` を組み立てる。
-9. `save_site_version({project_id, commit_sha, archive})` → `version_id`。
-10. `get_site` で `access_mode` を確認し、`custom` なら `deploy_private_site_version`、それ以外（`public` / `workspace_all`）なら `deploy_site_version` → `deployment_id`。取り違えると `INVALID_ARGUMENT site_not_owner_only` で 400 になる。
-11. `get_deployment_status` を 1 秒間隔（上限 5 秒）で `pending | publishing` の間ポーリング。**`succeeded` で URL を表示**、`failed` / `error` で `failure_message` とログ取得を案内（exit 1）。
-12. `.sites/state.json` 更新。
-
-#### `sites status [deployment_id] [--watch]`
-
-- MCP: `get_deployment_status`（引数省略時は `.sites/state.json` の直近 ID）。
-- 出力: 状態・開始時刻・所要時間・URL・失敗理由。`--watch` は終端（`succeeded` / `failed` / `error`）までポーリング（Ctrl-C 可）。
-
-#### `sites logs [--since 30m] [--limit 100] [--errors-only] [--follow] [--json]`
-
-- MCP: `get_site_worker_logs({project_id, since_minutes, limit, errors_only})`。
-- `--follow` は 3 秒間隔のポーリングで、取得済みの末尾（タイムスタンプ + メッセージのハッシュ）を除外して追記表示。**ストリーミングではない**ことをヘルプに明記。
-
-#### `sites env list|get|set|unset|pull|push`
-
-| サブコマンド | MCP | ローカル |
+| 種別 | 名前 | 値 |
 | --- | --- | --- |
-| `list` | `get_environment` | 値はマスク（`is_secret` は `****`） |
-| `get <key>` | `get_environment` | 非シークレットのみ表示 |
-| `set KEY=VALUE [--secret]` | `update_environment_variables({set_values:[…]})` | `.env` があれば追記提案 |
-| `unset KEY…` | `update_environment_variables({remove:[…]})` | — |
-| `pull [--out .env.local]` | `get_environment` | シークレットは書かない（鍵名のみ `KEY=`） |
-| `push <file>` | `update_environment_variables` | 差分のみ送信 |
+| A | `example.com` | `162.159.143.30` |
+| A | `example.com` | `172.66.3.26` |
+| TXT | `_openai-site-verification.example.com` | `openai-site-verification=…` |
+| TXT | `_cf-custom-hostname.example.com` | `…` |
 
-いずれも「反映には再デプロイが必要」と表示し、`--deploy` を付けた場合のみ続けてデプロイする。
+検証は通常 30〜60 秒（実測 40 秒で `active`）。既存の apex レコードを壊さないこと。
 
-#### `sites versions list|show|rollback`
+### 6.9 ログとアナリティクス
 
-- `list`: `list_site_versions({project_id, limit, cursor})`。新しい順、既定 20 件。
-- `show <version_id>`: `get_site_version`。
-- `rollback <version_id>`: 確認 → `deploy_site_version` → 状態ポーリング。`--yes` 必須（非 TTY）。
+- ログは pull 型（`get_site_worker_logs`）。`since_minutes` / `limit` / `errors_only` を指定する。
+- アナリティクスの窓は UTC-08:00 基準の 1 時間バケットに整列させる。`view: "list"` では `request_traffic: null`。
 
-#### `sites domains add|list|refresh|remove`
+### 6.10 上限と制限
 
-- `add <hostname>`: `add_custom_domain` → 返った CNAME ターゲットと**検証用 TXT 2 本**をそのまま貼れる形で表示する。
+- アーカイブ 512 MiB、isolate 128 MB。
+- レート制限は明示されていない（30 回連続の `list_sites` で 429 は出なかった）。429 は指数バックオフで再試行する。
+- ツール数は増減する（実測で 470 → 497）。`sites.*` の名前で呼ぶ。
 
-```
-✓ Added sites-verify.example.com (status: pending)
-  CNAME  sites-verify.example.com        → custom-domains.chatgpt.site  (proxied)
-  TXT    _openai-site-verification.…     → openai-site-verification=vrpfsp_…
-  TXT    _cf-custom-hostname.…           → 5944a80b-…
-  next:  DNS を設定して `sites domains refresh sites-verify.example.com`
-```
+## 7. 変換仕様（wrangler → Sites）
 
-- `refresh <hostname>`: `refresh_custom_domain_status`（`custom_domain_id` は list から解決）。`status/provider_status/ssl_status` の 3 値を表示する。実測では約 40 秒で `active/active/active`。
-- `remove`: `remove_custom_domain` + 確認。
+### 7.1 入力
 
-#### `sites access [show|set]`
+探索順は `hosting.json` → `wrangler.jsonc` → `wrangler.json` → `wrangler.toml`。読み取るのは `name` / `main` / `assets.{directory,binding,not_found_handling}` / `d1_databases[]` / `r2_buckets[]` / `vars` / `migrations_dir` / `triggers.crons` / 非対応セクションの有無。
 
-- `show`: `get_site` の `access_mode` と許可リスト。
-- `set --mode public|workspace|custom [--email …] [--group …] [--viewer …] [--editor …]`: `update_site_access`。`custom` 以外で許可リストを渡したら exit 2（意味がないため）。公開範囲の反映は 40–60 秒かかるので、`--wait` 指定時は `get_site` を 3 秒間隔で最大 120 秒ポーリングし、`access_mode` が一致した時点で終了する。`workspace_all` を指定した場合は「組織構成に依存し、実効は保証しない」旨を stderr に出す。
+### 7.2 出力
 
-#### `sites analytics [summary|events] [--since 24h] [--json]`
+- `.openai/hosting.json`（§6.2）。`name` は slug 候補とタイトルに使う。
+- `dist/server/index.js`（Worker）または `dist/index.html`（静的）。
+- `dist/.openai/drizzle/`（D1 を使う場合、`migrations_dir` からコピー）。
 
-- `summary`: `get_site_analytics_overview`。
-- `events`: `list_site_analytics_events` / `query_site_analytics_event`（`start_time_ms` / `end_time_ms` を計算）。
+### 7.3 Rolldown バンドル
 
-#### `sites open`
-
-- `get_site` で URL を取り、`$BROWSER` / `open` / `xdg-open` で開く。取得できなければ exit 1。
-
-#### `sites doctor [--json]`
-
-- ローカル診断: Node バージョン、Codex 認証の有効期限（`~/.codex/auth.json`）、`hosting.json` の妥当性、git 状態（remote/branch/未コミット）、Rolldown の解決可否、未対応バインディング、`drizzle` の有無。
-- MCP: `initialize` のみ（疎通確認）。
-- 出力は ✓/⚠/✗ の 3 段階。`✗` があれば exit 5。
-
-#### `sites cli search "<task>"` / `sites docs search "<q>"` / `sites schema`
-
-- `cf` のエージェント向け発見性を踏襲。`cli search` は組み込みのコマンド索引（名前・要約・主要フラグ）から最大 5 件を JSON で返す。
-- `docs search` は `docs/` 配下の見出しを検索し、該当ファイル + 見出し + 1 行要約を返す。
-- `schema` は全コマンドの引数・フラグ・終了コードを JSON Schema 風に出力（エージェントの自己修正用）。
-
-### 5.5 添付アップロード（3 段階）
-
-```
-1) POST /backend-api/files
-   {file_name, file_size, use_case:"codex", codex_connector_id, codex_action_name, codex_model}
-   → {status:"success", file_id, upload_url}
-2) PUT <upload_url>   (ヘッダ: x-ms-blob-type: BlockBlob、認証ヘッダは付けない)
-   → 201。502/503/504 は最大 5 回再試行
-3) POST /backend-api/files/<file_id>/uploaded  {}
-   → {status:"success"|"retry", download_url, file_id, mime_type, file_name, file_size_bytes}
-     を 250ms 間隔・最大 30 秒ポーリング
-```
-
-- `archive` には **3 の結果から組み立てたオブジェクト** `{download_url, file_id, mime_type, file_name}` を渡す。`sediment://` 文字列は不要（実測で `INVALID_ARGUMENT`）。
-- `_meta["openai/fileParams"] = ["archive"]` を付ける。
-- 上限 536,870,912 B（512 MiB）。超える場合は tar 前にサイズ検査して exit 2。実測で +1 B は `400 file_too_large`。
-- 根拠レベル: **実測済み**（メタデータ作成 → PUT → 確定の 3 段階を小さい tar で通した）。`upload_url` は署名付きなのでログに出さない。
-
-### 5.6 運用面
-
-- **トークン**: 引数・ログ・git remote URL・`.sites/state.json` に残さない。`--verbose` でも Authorization ヘッダは伏せる。
-- **リトライ**: GET 相当（`list_*`, `get_*`）は 429/5xx で最大 3 回（指数バックオフ + jitter）。`save_site_version` などの非冪等呼び出しは再試行しない。
-- **冪等性**: `create_site` は `project_id` が既にある場合**呼ばない**（手順書の指示）。連打時の二重作成を防ぐため、`.sites/state.json` にロックファイル（`proper-lockfile` 相当の排他）を置く。
-- **中断**: Ctrl-C で SIGINT を捕捉し、子プロセス（git / build）を終了、一時ディレクトリを削除、exit 130。
-- **タイムアウト**: HTTP 30 秒、デプロイポーリング 300 秒（`--timeout` で変更）。
-- **監査性**: `--json` 出力に `project_id` / `version_id` / `deployment_id` / `commit_sha` を含める。
-
----
-
-## 6. wrangler プロジェクトの変換
-
-### 6.1 対象と対象外
-
-| 対象 | 条件 |
-| --- | --- |
-| 単一 Worker | `main` を持ち、`assets` を持たない |
-| 静的サイト | `assets.directory` のみ（`main` なし） |
-| D1 / R2 | バインディング名のみ移行（データ移行はしない） |
-| 対象外 | 複数 Worker / monorepo、`assets` + `main` の併用、KV/DO/Queues/Service Bindings/Hyperdrive/Vectorize/AI、`wrangler.toml` の `[[rules]]`（カスタムローダ） |
-
-### 6.2 検出
-
-1. `.openai/hosting.json` があれば**変換しない**（Sites ネイティブプロジェクト）。
-2. `wrangler.json` / `wrangler.jsonc` / `wrangler.toml` を探す（優先順はこの順）。
-3. `package.json` の `dev`/`build`/`deploy` スクリプトに `wrangler` が含まれるかも補助シグナルにする。
-4. 検出時は「変換モード」で動作し、`--write-hosting-json` を付けた場合のみ `.openai/hosting.json` を生成する（既定はメモリ上のみ）。
-
-### 6.3 事前検査チェックリスト
-
-`--dry-run` でも必ず実行する。`✗` が 1 つでもあれば exit 5（`--allow-unsupported` で明示的に落とせるものを除く）。
-
-| # | 検査 | 失敗時の扱い |
-| --- | --- | --- |
-| 1 | `main` が存在し、ファイルとして読める | ✗ 停止 |
-| 2 | `main` が ESM（`import`/`export` を含む） | ✗ 停止（CJS は `require` 変換が不確実） |
-| 3 | `main` が `export default { fetch }` を持つ（バンドル後に検証） | ✗ 停止 |
-| 4 | `assets` と `main` の併用がある場合、`assets.binding` が `ASSETS`（既定）で `assets.directory` が存在する | ✗ 停止（別名バインディングは不可。`dist/client` へ変換） |
-| 5 | `assets.directory` が存在する（静的モード時） | ✗ 停止 |
-| 6 | `kv_namespaces` / `durable_objects` / `queues` / `services` / `hyperdrive` / `vectorize` / `ai` / `browser` / `analytics_engine` がない | ✗ 停止（`--allow-unsupported` で該当のみ除外可） |
-| 7 | `triggers.crons` がない | ⚠ 警告（`--allow-cron-drop` で続行） |
-| 8 | `d1_databases` が 1 件以下、`r2_buckets` が 1 件以下 | ✗ 停止（Sites は各 1 つ） |
-| 9 | `d1_databases[].binding` が識別子として妥当（`[A-Za-z_][A-Za-z0-9_]*`） | ✗ 停止 |
-| 10 | `compatibility_date` が存在する | ⚠ 警告（Sites 側では無視される） |
-| 11 | `compatibility_flags` に `nodejs_compat` 以外が含まれる | ⚠ 警告 |
-| 12 | `[[rules]]` / `build.upload.format` などの独自ローダ指定がない | ✗ 停止 |
-| 13 | `main` の import がすべて解決できる（`cloudflare:*` / `node:*` を除く） | ✗ 停止（Rolldown は未解決を警告して external にするため、警告を検査で拾う） |
-| 14 | `drizzle/*.sql` がある場合、`meta/_journal.json` が存在するか、ファイル名がゼロ埋め（`0000_`）である | ⚠ 警告（順序は文字列順。`10_` が `1_` より先に走る） |
-| 15 | 生成物が 512 MiB 未満 | ✗ 停止 |
-| 16 | `.wasm` / `.txt` などの特殊 import がない | ✗ 停止（WASM は実行時コンパイル不可。§3） |
-| 17 | `env.ASSETS` 以外の方法で資産を読んでいない（`env.ASSETS` は可） | ⚠ 警告（`ASSETS` は常に注入される） |
-
-### 6.4 変換マッピング
-
-| wrangler | sites | 備考 |
-| --- | --- | --- |
-| `name` | `slug`（正規化）+ `title` | `check_slug_availability` で確認 |
-| `main` | Rolldown のエントリ | `dist/server/index.js` へ |
-| `assets.directory`（`main` なし） | `static.directory` | 正規化して `dist` に |
-| `assets.directory`（`main` あり、`binding: "ASSETS"`） | `dist/client/` へコピー | `ASSETS` は常に注入されるので宣言不要 |
-| `assets.not_found_handling` | `static.not_found_handling`（静的モードのみ） | 値はそのまま（`single-page-application` 等）。Worker モードでは無視 |
-| `d1_databases[0].binding` | `d1` | `database_id` は破棄 |
-| `r2_buckets[0].binding` | `r2` | `bucket_name` は破棄 |
-| `vars` | `update_environment_variables`（`is_secret:false`） | デプロイ時に反映 |
-| `secrets`（`wrangler secret`） | `--env-file` / 対話入力 | 値は読めないため移行不可。鍵名のみ警告一覧に出す |
-| `triggers.crons` | 変換せず警告 | 代替: `create_schedule`（削除 API が無いため自動作成はしない） |
-| `routes` / `custom_domains` | `sites domains add` を案内 | 自動追加はしない |
-| `compatibility_date` / `flags` | 無視 | 警告のみ |
-| `migrations_dir` | `drizzle/` を探索 | 既定 `drizzle` |
-| `build.command` | `package.json` の `build` を実行 | `--no-build-script` で抑止 |
-
-### 6.5 Rolldown 設定（実測に基づく）
-
-```ts
-// src/build/worker.ts の実装イメージ
-import { build } from "rolldown";
-import { readFile } from "node:fs/promises";
-
+```js
 await build({
   input: main,
   platform: "neutral",
   external: [/^cloudflare:/, /^node:/],
-  plugins: [
-    {
-      name: "reject-binary-assets",
-      load(id) {
-        if (/\.(wasm|node)$/.test(id)) {
-          throw new Error(`Unsupported asset import: ${id} (WASM cannot run on Sites)`);
-        }
-        if (/\.(txt|html|json)$/.test(id)) {
-          // テキストは JS 文字列としてインライン化する（別ファイルを出さない）
-          return readFile(id, "utf8").then((s) => `export default ${JSON.stringify(s)};`);
-        }
-        return null;
-      },
-    },
-  ],
-  output: { file: "dist/server/index.js", format: "esm", sourcemap: false },
+  plugins: [rejectBinaryAssets()],
+  output: { file: "dist/server/index.js", format: "esm" },
 });
 ```
 
-- `external` に `cloudflare:*` / `node:*` を入れる。未指定でも Rolldown は警告して external 扱いにするが、警告を検査で拾うために明示する（esbuild との差）。
-- `.wasm` は**必ず停止**。base64 埋め込みでバンドルは通るが、実行時に `Wasm code generation disallowed by embedder` で 500 になる（実測）。
-- `.txt` / `.json` は文字列としてインライン化する（`.wasm` のような別ファイル出力は単一 ESM を壊す）。
-- 出力検証: 生成物を読み、`^import` 行が `cloudflare:*` と `node:*` だけであること、`require(` が無いこと、`import(` による相対パス参照が無いこと、`export default` があることを確かめる。**評価はしない**（`cloudflare:workers` を解決できない Node では import できない）。
-- `nodejs_compat` はホスト側で有効（実測）なので、`node:*` の事前検査は**警告のみ**。ただし `node:net` / `node:dgram` など TCP/UDP は不可（raw TCP 不可）。
-- ソースマップは既定で無効。`--sourcemap` は `inline` のみ許可（アーカイブに `.map` を増やさないため）。
-- ビルドは `deploy` の内部処理。`--dry-run` でも同じ関数を通し、出力先を一時ディレクトリにして検査結果だけを返す。
+- `cloudflare:workers` は Rolldown では警告付きで外部扱いになるが、`external` に明示する。
+- `node:*` も外部化する（ホスト側は `nodejs_compat` 有効）。
+- `.txt` / `.html` / `.json` は文字列としてインライン化し、`.wasm` とバイナリは例外にする。
+- 出力検証: `export default` がある、import が `cloudflare:*` と `node:*` だけ、相対 import と `require(` が無い、`import.meta.url` によるファイル読み込みが無い。評価はしない。
 
-### 6.6 停止条件（要約）
+### 7.4 変換規則
 
-- `assets.binding` が `ASSETS` 以外の Worker + `assets` の併用
-- `assets.directory` が存在しない、または `main` と `assets` の両方が無い
-- `.wasm` / バイナリアセットの import（実行時コンパイル不可）
-- 静的 + D1/R2/`capabilities`/マイグレーション
-- 未対応バインディング（明示的な `--allow-unsupported` がない限り）
-- ESM でない `main`、`export default { fetch }` が無い
-- 未解決 import が残る
-- 512 MiB 超
-- git が分岐している / 差分が競合している
-
----
-
-## 7. 実装単位
-
-各単位は**コードを含む**（ドキュメントだけの単位は作らない）。「受入」はその単位だけで検証できる条件。
-
-### U1. MCP クライアントと Codex 認証
-
-- ファイル: `src/mcp/client.ts`, `src/mcp/sse.ts`, `src/auth/codex.ts`, `src/auth/refresh.ts`
-- 内容: ヘッダ生成（UA 必須）、SSE パース、JSON-RPC エラー→ `SitesError` 変換、タイムアウト、リトライ。`~/.codex/auth.json` の読み取り、`SITES_ACCESS_TOKEN` の優先、OAuth リフレッシュ（`client_id=app_EMoamEEZ73f0CkXaXp7hrann`）、ローテーションされた `refresh_token` の書き戻し（tmp + rename、0600）。**独自の認証ストア・ログインコマンドは作らない。**
-- 受入: フェイク SSE サーバに対して `initialize` / `tools/call` が通り、401 で 1 回更新して再試行する。書き戻し後に `auth_mode` / `OPENAI_API_KEY` が保持されることをテストで固定。UA 無しのリクエストを送らないことも固定。
-
-### U2. CLI 骨格
-
-- ファイル: `src/cli.ts`, `src/commands/index.ts`, `src/ui/output.ts`, `src/ui/errors.ts`, `src/exit.ts`
-- 内容: `commander` のセットアップ、グローバルフラグ、人間/JSON 出力、終了コード、`--yes` の TTY 判定。
-- 受入: 全コマンドが `--help` を出し、未知フラグで exit 2、`--json` で封筒形式になる。
-
-### U3. プロジェクト解決と `hosting.json`
-
-- ファイル: `src/project/resolve.ts`, `src/project/manifest.ts`, `src/project/state.ts`
-- 内容: 探索、スキーマ検証（`static` の許可値、未知キーの警告）、アトミック書き込み、`.sites/state.json`、ロック。
-- 受入: 不正な `static.directory` を exit 5 で拒否。`project_id` の二重書き込みが起きない。
-
-### U4. wrangler 検出と事前検査
-
-- ファイル: `src/convert/detect.ts`, `src/convert/jsonc.ts`, `src/convert/toml.ts`, `src/convert/preflight.ts`, `src/convert/mapping.ts`
-- 内容: §6.2〜6.4 の実装。検査結果を `{level, code, message, hint}` の配列で返す。
-- 受入: フィクスチャ 7 種（正常 Worker / 静的 / KV 入り / `assets`+`main`（`ASSETS`）/ `assets` 別名 / 複数 D1 / cron 入り）で期待どおりの判定。
-
-### U5. ビルド（静的）
-
-- ファイル: `src/build/static.ts`, `src/build/layout.ts`
-- 内容: `static.directory` の解決、`dist/` へのコピー、`hosting.json` の正規化、`drizzle` 同梱、シンボリックリンク検査。`deploy` から関数として呼ばれる（専用コマンドは無い）。
-- 受入: SPA フィクスチャで `dist/index.html` と `dist/.openai/hosting.json` が生成される。`deploy --dry-run` で同じ検査が走る。
-
-### U6. ビルド（Worker / Rolldown）
-
-- ファイル: `src/build/worker.ts`, `src/build/bundle.ts`, `src/build/verify.ts`
-- 内容: §6.5 の Rolldown 呼び出し、`external` の明示、`.wasm` の拒否、テキストのインライン化、出力検証（import 許可リスト、単一ファイル、`export default`）。
-- 受入: `cloudflare:workers` + `node:path` を使うフィクスチャが通り、`.wasm` import を exit 5 で拒否。`assets` は `ASSETS` なら通り、別名なら exit 5。
-
-### U7. ソース同期
-
-- ファイル: `src/git/sync.ts`, `src/git/credentials.ts`, `src/git/exec.ts`
-- 内容: §2.4 のプロトコル。`GIT_DIR` 系の除去、HTTPS 検証、ヘッダ認証、トークン伏字、`ls-remote` 一致確認、diverged 検出。
-- 受入: ローカルのベアリポジトリを remote に見立て、初回 push / 2 回目 / 分岐（exit 6）を再現。
-
-### U8. アーカイブとアップロード
-
-- ファイル: `src/package/archive.ts`, `src/upload/files.ts`, `src/upload/poll.ts`
-- 内容: `tar` での `dist` 圧縮、チェックアウト外への出力、サイズ検査、3 段階アップロード、`{download_url, file_id, mime_type, file_name}` の組み立て。
-- 受入: フェイク HTTP サーバで 3 段階（201 → success）を通し、502 で再試行、`retry` でポーリングする。
-
-### U9. デプロイと状態
-
-- ファイル: `src/deploy/run.ts`, `src/deploy/status.ts`, `src/deploy/rollback.ts`
-- 内容: §5.4 のシーケンス（ビルドは内部処理）、公開範囲によるツール選択、`commit_sha` 重複排除を避ける空コミット、`archive` オブジェクトの組み立て、ポーリング、URL 表示、失敗時のログ案内。
-- 受入: フェイク MCP で `pending → publishing → succeeded` を再現し、URL を出力。`failed` で exit 1 + ログ案内。同じ成果物で再実行しても `save` が新しいバージョンを返すことをテストする。
-
-### U10. 情報系コマンド
-
-- ファイル: `src/commands/{list,info,env,logs,versions,domains,access,analytics,delete}.ts`
-- 内容: 各コマンドの MCP 呼び出しと表示。`env` のマスク、`logs --follow` の差分表示、`access` の引数検証。
-- 受入: フェイク MCP のレスポンスで表・JSON の両方が一致する（スナップショットテスト）。
-
-### U11. 初期化・診断・発見性
-
-- ファイル: `src/commands/{init,doctor,open}.ts`, `src/discovery/search.ts`, `src/discovery/schema.ts`
-- 内容: 雛形展開、`doctor`（Codex 認証・Rolldown・git・バインディング）、`cli search` / `docs search` / `schema`。
-- 受入: `doctor` が認証切れ・未対応バインディング・git 未設定を検出。`schema` が全コマンドを列挙。
-
-### U12. 配布と CI
-
-- ファイル: `package.json`（`bin: {"sites": "./dist/bin.js"}`）, `.github/workflows/ci.yml`, `rolldown` による CLI 自身のバンドル設定（配布物も単一 ESM）
-- 内容: CLI を単一 ESM にバンドル、Node 22/24 のマトリクスでテスト、`npm publish --dry-run` の検証。
-- 受入: `node dist/bin.js --version` が動き、CI が緑。
-
-**依存関係**: U1 → U2 → U3 → (U4, U5, U6) → (U7, U8) → U9 → U10 → U11 → U12。U4/U5/U6 は並行可。
-
----
-
-## 8. テスト戦略
-
-1. **単体**: 事前検査、slug 正規化、`hosting.json` 検証、Rolldown 出力検証、SSE パース、`archive` オブジェクト組み立て。
-2. **フェイク MCP サーバ**: 実レスポンスを録画した JSON を返すローカル HTTP サーバ（`test/fixtures/mcp/*.json`）。**ネットワークに出ない**。
-3. **git 統合**: 一時ディレクトリにベアリポジトリを作り、初回/更新/分岐を再現。
-4. **スナップショット**: 各コマンドの人間向け出力と `--json` 出力。
-5. **実機（任意・承認後）**: 書き込み系の検証は `docs/verification-plan-ja.md`（別途）に従い、専用の使い捨てサイトで行う。
-
----
-
-## 9. 検証結果（2026-11-07 実施済み）
-
-使い捨てサイト（`appgprj_6aee9644bcac8191ae99a192189125a1`）で実測した。詳細・証拠形状は [verification-ja.md](./verification-ja.md)。
-
-| # | 事項 | 結果 | レベル |
-| --- | --- | --- | --- |
-| 1 | `create_site` の戻り値 | `id`（= `project_id`）/ `expected_url` / `source_repository_credential` | 実測 |
-| 2 | ソース push の必須性 | 未 push では `CONFLICT: repository_branch_not_found` | 実測 |
-| 3 | `archive` の形 | アップロード結果のオブジェクト。`sediment://` 文字列は不可 | 実測 |
-| 4 | `commit_sha` の重複排除 | 同じ sha では新規バージョンが作られない | 実測 |
-| 5 | デプロイ状態 | `pending → publishing → succeeded`（終端は `succeeded`） | 実測 |
-| 6 | `nodejs_compat` | 有効 | 実測 |
-| 7 | WASM | 実行時コンパイル不可（500） | 実測 |
-| 8 | Worker の `dist/client` | 配信される（`ASSETS` の実体。round 2 で契約として追認） | 実測 |
-| 9 | D1 マイグレーション | journal 順、適用済みはスキップ、データ保持 | 実測 |
-| 10 | 環境変数 | 変更だけでは反映されず、再デプロイで反映 | 実測 |
-| 11 | カスタムドメイン | CNAME + TXT 2 本、約 40 秒で `active` | 実測 |
-| 12 | アップロード上限 | 512 MiB（+1 B で `file_too_large`） | 実測 |
-| 13 | レート制限 | 30 連続呼び出しで 429 なし（約 0.95 秒/回） | 実測 |
-| 14 | OAuth リフレッシュ | 成功、`expires_in: 864000`、RT ローテーション | 実測 |
-| 15 | Rolldown の単一 ESM 化 | `external` 明示で 414 B、import は `cloudflare:*` / `node:*` のみ | 実測 |
-| 16 | `ASSETS` バインディング | 常に注入。`ASSETS.fetch()` が `dist/client/hello.txt` を 200 で返す。`capabilities` は `"mcp"` のみ受理 | 実測 |
-| 17 | 公開サイト（`public`） | 匿名 200 まで 40–60 秒。`deploy_site_version` を使う。`deploy_public_site_version` は存在しない | 実測 |
-| 18 | `workspace_all` / 許可リスト | `workspace_all` は受理（`available_access_modes` には出ない）。不正グループは `invalid_access_policy`、外部メールは `invalid_external_visitor_email` | 実測（実効は未検証） |
-| 19 | apex ドメイン | 受理。A 2 本（`162.159.143.30`, `172.66.3.26`）+ TXT 2 本 | 実測 |
-| 20 | WebSocket / raw TCP | `wss://` の往復は成功。`connect()` は `Stream was cancelled.` | 実測 |
-| 21 | KV / DO / Queues / Hyperdrive | 未知キーは `Extra inputs are not permitted`。実行時の `env` は `ASSETS` のみ | 実測 |
-| 22 | `_journal.json` なし | 適用される。順序は文字列順（`10_` が `1_` より先） | 実測 |
-| 23 | 失敗デプロイ | `failed` + `failure_message` に生のエラー（`Uncaught SyntaxError: …` 等） | 実測 |
-| 24 | アナリティクス / サイト内 MCP / スケジュール | 分析はバケット整列必須。`/mcp` は OAuth ゲートで 401。スケジュールは削除 API 不在のため未作成 | 実測（MCP ハンドラは未検証） |
-
-**検証環境の制約で確定できなかった 3 件**（いずれも「試みたが不可能と確定」。詳細は [verification-ja.md](./verification-ja.md) §4）: `workspace_all` の実効（他ユーザーのセッションを用意できない）、サイト内 MCP のハンドラ挙動（リソース向け OAuth トークンの取得が範囲外）、アナリティクスの新規イベント反映（最大 1 時間バケットの確定待ちで、検証サイトは削除済み）。実装ではこの 3 件に依存する機能（実効性の案内、MCP の疎通確認、アナリティクスの即時表示）を提供しない。
-
-書き込み系の再検証が必要になった場合は、専用の使い捨てサイトを 1 つ作り、[verification-ja.md](./verification-ja.md) の手順に沿って行う。
-
----
-
-## 10. リスクと代替案
-
-| リスク | 影響 | 対応 |
+| wrangler | Sites | 備考 |
 | --- | --- | --- |
-| 内部 API の仕様変更（`ps/mcp`、`files`） | CLI が動かなくなる | API バージョン検出（`initialize` の `serverInfo`）と、失敗時の明確なメッセージ。`--api-base` で切替可 |
-| Codex の OAuth クライアント依存 | 認証が壊れる | `SITES_ACCESS_TOKEN` による CI 利用を第一級でサポート |
-| `node:` 組み込みの対応範囲 | `node:net` / `node:dgram` など TCP/UDP が使えない | 事前検査で警告し、raw TCP は不可と明記 |
-| ソース push の失敗 / 履歴分岐 | デプロイが止まる | `ls-remote` 一致確認、diverged は exit 6 で push 手順を提示 |
-| 同一 `commit_sha` での保存無視 | 古い内容がデプロイされる | 成果物ハッシュが変わったら空コミットを作る（§5.4 手順 6） |
-| 単一 ESM 制約（WASM・動的 import） | 一部プロジェクトが変換不能 | 事前検査で停止し、`wrangler` 併用を案内 |
-| `cf` との UX 乖離 | 「同じ使用感」の要求を満たせない | §4.3 のフラグ・出力・終了コードを仕様として固定し、スナップショットで回帰防止 |
-| 誤デプロイ（公開） | 情報露出 | 既定は非公開。`--public` は明示 + 確認。`access set` も確認必須 |
+| `name` | slug 候補 + `title` | 小文字化、英数字とハイフン以外を除去、先頭は英字 |
+| `main` | Rolldown の入力 → `dist/server/index.js` | 単一 ESM 化 |
+| `assets.directory` | `dist/client/` へコピー | `main` と併用可 |
+| `assets.binding` | 無視（`ASSETS` 固定） | `ASSETS` 以外は警告 |
+| `assets.not_found_handling` | `static.not_found_handling` | 静的のみ |
+| `d1_databases[0].binding` | `d1` | 1 つだけ |
+| `r2_buckets[0].binding` | `r2` | 1 つだけ |
+| `vars` | 環境変数（デプロイ時に反映） | 秘密は別扱い |
+| `triggers.crons` | 変換しない（`create_schedule`） | 警告 |
+| `compatibility_date` / `_flags` | 無視 | 警告 |
+| `routes` / `custom_domains` | 変換しない（`sites domains add`） | 警告 |
+| `migrations_dir` | `dist/.openai/drizzle` の元 | 既定 `drizzle` |
 
-**代替案**: `cf` のプラグインとして実装する（`cf` の拡張点が非公開のため現実的でない）、`wrangler` のカスタムデプロイコマンドとして実装する（Sites の MCP 認証と噛み合わない）。**独立 CLI + MCP 直結が最も素直**。
+### 7.5 停止と警告
 
----
+停止（終了コード 5）: `kv_namespaces`、`durable_objects`、`queues`、`services`、`hyperdrive`、`vectorize`、`ai` / `browser`、`[[rules]]`、`.wasm` import、D1 が 2 つ以上、R2 が 2 つ以上、バインディング名が識別子でない、512 MiB 超過、単一 ESM 条件の違反。
 
-## 付録 A. MCP 呼び出しの最小例
+警告（続行）: `assets.binding` が `ASSETS` 以外、`triggers.crons`、`compatibility_date` / `_flags`、`routes` / `custom_domains`、`.dev.vars` などの秘密、マイグレーションのゼロ埋め無し、`env.ASSETS` の参照（そのまま動く）。
 
-```jsonc
-// 1) 疎通
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
-  "protocolVersion":"2025-03-26","capabilities":{},
-  "clientInfo":{"name":"sites-cli","version":"0.1.0"}}}
+`--allow-unsupported <kind>` は停止判定のうち指定した種別だけを警告へ格下げする。格下げしても該当コードは動かないため、レポートに「未変換」として残す。
 
-// 2) 一覧
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
-  "name":"sites.list_sites","arguments":{"limit":20}}}
+### 7.6 変換レポート
 
-// 3) 保存（archive はオブジェクト）
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
-  "name":"sites.save_site_version",
-  "arguments":{"project_id":"appgprj_…","commit_sha":"a1b2c3d",
-    "archive":{"download_url":"https://…","file_id":"file_…",
-      "mime_type":"application/x-tar","file_name":"site.tar.gz"}},
-  "_meta":{"openai/fileParams":["archive"]}}}
-
-// 4) デプロイ
-{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{
-  "name":"sites.deploy_private_site_version",
-  "arguments":{"project_id":"appgprj_…","version_id":"appgprj_…~appgver_…"}}}
+```json
+{
+  "conversion": {
+    "source": "wrangler.jsonc",
+    "kind": "worker",
+    "manifest": { "d1": "DB", "r2": null, "static": null, "capabilities": [] },
+    "changed": ["main → Rolldown bundle", "d1_databases[0].binding → d1"],
+    "warnings": [{ "code": "CONVERT_CRON_NOT_MIGRATED", "detail": "triggers.crons[0]: \"0 * * * *\"" }],
+    "blocked": [],
+    "outputs": ["dist/server/index.js", "dist/.openai/hosting.json"]
+  }
+}
 ```
 
-## 付録 B. 参考にした一次情報
+停止したときは何も書き換えない（`hosting.json` を作らず、`dist/` も消さない）。停止理由は 1 件目で止めずに全部列挙する。
 
-- `~/.codex/plugins/cache/openai-curated-remote/sites/1.1.3/skills/sites/SKILL.md` および `references/*.md`
-- 同 `scripts/{prepare-site-build.cjs, package-site.mjs, site-workflow.mjs, archive-path.mjs}`
-- 同 `templates/{worker-esm-starter, vinext-starter}`
-- `~/ghq/github.com/hayatosc/box-mcp/node_modules/cf`（`cf --help` 実測、`cf auth --help`、`cf deploy --help`、`cf cli search`）
-- MCP 実測（`initialize` / `tools/list` / `sites.list_sites` / `sites.check_slug_availability` / エラー形状）
-- esbuild 実測（`/tmp/sites-fixture`、esbuild 0.25.12、Node 24.21.0）
-- Rolldown 実測（`/tmp/sites-fixture`、rolldown 1.3.0、Node 24.21.0）
-- 実測検証（使い捨てサイト、2026-11-07）: [verification-ja.md](./verification-ja.md)
-- `docs/research/` の 3 文書（本書で再確認できなかった箇所は「ソース確認（先行調査）」と明記）
+## 8. 非対応事項
+
+| 項目 | 理由 |
+| --- | --- |
+| KV / Durable Objects / Queues / Service Bindings / Hyperdrive / Vectorize / Workers AI | Sites にバインディングが無い（マニフェストの未知キーは拒否される） |
+| Cron | 仕組みが無い。`create_schedule` / `offer_site_schedule` で代替する（削除 API は無い） |
+| raw TCP | `connect()` が失敗する |
+| WASM の実行時コンパイル | 埋め込みバイトからの instantiate が拒否される |
+| `sites dev`（ローカル開発サーバ） | Sites 側に無い。`wrangler dev` を使う |
+| `sites preview`（プレビュー配信） | プレビュー用のデプロイ種別が無い |
+| CI からのビルドのみ実行 | `deploy --dry-run` で代替（成果物は残る） |
+| Sites の認証 UI 操作（`cf auth login` 相当） | Codex の認証を共有する |
+| DNS レコードの自動作成 | 検証レコードの提示まで。作成は利用者が行う |
+| サイト内 MCP の疎通確認 | `/mcp` はリソース向け OAuth が必要で、CLI からは検証できない |
+
+## 9. 未決定事項
+
+1. **配布形態**: リポジトリ名（`sites-cli` のままか）、npm 公開の有無、`npx sites` を許すか。単一 `.mjs` をそのまま配る案と、npm に publish する案がある。
+2. **Rolldown の入手方法**: 依存なしの前提で、プロジェクト側の `rolldown` を使うか `npx rolldown` を呼ぶか。どちらも無い場合に「バンドルせず単一 ESM を要求する」へ落とすか。
+3. **`doctor` の範囲**: 12 項目で足りるか。`--fix-git` が触ってよい範囲（作業用 remote の掃除までか、`fetch` までか）。
+4. **ASSETS 変換の最終判断**: `assets.directory` + `main` を `dist/client/` へ移す変換を既定で有効にするか、`--with-assets` のような明示フラグにするか。
+5. **`--tag` の保存先**: API にバージョンのタグが無いため、`.sites/state.json` に持つか、git のタグに写すか。
+6. **`logs --follow` の上限**: ポーリング間隔の上限（60 秒）と、何時間まで追うか。
+7. **`analytics` の既定窓**: 24 時間か 7 日か。バケット整列の基準（UTC-08:00）を利用者に見せるか。
+8. **`workspace_all` の案内文**: 実効性が未確認のため、指定時に警告を出すか拒否するか。
+9. **複数サイト運用**: 1 リポジトリで複数サイトを持つ構成（`sites/<name>/`）を許すか。
+10. **`sites delete` 後の `project_id` の扱い**: `hosting.json` から自動で消すか、手動のままにするか。
+
+判断はすべてオーナーが行う。実装は 1〜3 を先に決めないと着手できない。
