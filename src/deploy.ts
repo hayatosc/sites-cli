@@ -9,8 +9,10 @@ import type { SiteKind } from "./package-site.ts";
 import { currentHead, dirtyFiles, syncSource } from "./git.ts";
 import { uploadArchive } from "./upload.ts";
 import { pollDeployment } from "./deployment.ts";
-import { readManifest, readState, writeState } from "./manifest.ts";
+import { MANIFEST_DIR, MANIFEST_NAME, readManifest, readState, writeState } from "./manifest.ts";
 import type { LocalState } from "./manifest.ts";
+import { convertWranglerProject } from "./convert.ts";
+import type { ConversionReport } from "./convert.ts";
 import { CliError, EXIT } from "./errors.ts";
 import type { DeploymentRecord, SiteRecord, SiteVersionRecord, SourceCredential } from "./api-types.ts";
 import type { CommandContext } from "./types.ts";
@@ -29,6 +31,7 @@ export interface DeployData {
   commit_pushed?: boolean;
   archive?: { size_bytes: number; file_count: number };
   dry_run?: boolean;
+  conversion?: ConversionReport;
 }
 
 function accessModeFromFlags(ctx: CommandContext): "custom" | "public" | "workspace_all" | null {
@@ -59,6 +62,17 @@ async function confirmPublic(ctx: CommandContext): Promise<void> {
   });
   if (answer !== "y" && answer !== "yes") {
     throw new CliError("CANCELLED", "Deploy cancelled.", { exitCode: EXIT.INTERRUPT });
+  }
+}
+
+function conversionVariables(root: string): Array<{ key: string; value: string }> {
+  const file = path.join(root, ".sites", "conversion.json");
+  if (!fs.existsSync(file)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as { vars?: Record<string, unknown> };
+    return Object.entries(parsed.vars ?? {}).map(([key, value]) => ({ key, value: String(value) }));
+  } catch {
+    return [];
   }
 }
 
@@ -103,14 +117,6 @@ function credentialOf(value: SourceCredential | null | undefined, projectId: str
 }
 
 export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
-  const manifest = readManifest(ctx.root).manifest;
-  if (!manifest.project_id) {
-    throw new CliError("PREFLIGHT_NO_PROJECT", "hosting.json has no project_id.", {
-      exitCode: EXIT.PREFLIGHT,
-      hint: "Run `sites create <slug>` first.",
-    });
-  }
-  const projectId = manifest.project_id;
   const dryRun = Boolean(ctx.options["dry-run"]);
   const allowDirty = Boolean(ctx.options["allow-dirty"]);
   const timeout = Number(ctx.options.timeout ?? 300);
@@ -131,6 +137,24 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
       details: { files: dirty.slice(0, 20) },
     });
   }
+
+  let conversion: ConversionReport | null = null;
+  if (!fs.existsSync(path.join(ctx.root, MANIFEST_DIR, MANIFEST_NAME))) {
+    conversion = await convertWranglerProject({
+      root: ctx.root,
+      allowUnsupported: stringOption(ctx.options, "allow-unsupported")?.split(",") ?? [],
+      log: ctx.log,
+    });
+  }
+
+  const manifest = readManifest(ctx.root).manifest;
+  if (!manifest.project_id) {
+    throw new CliError("PREFLIGHT_NO_PROJECT", "hosting.json has no project_id.", {
+      exitCode: EXIT.PREFLIGHT,
+      hint: "Run `sites create <slug>` first.",
+    });
+  }
+  const projectId = manifest.project_id;
   ctx.log("[2/7] Build");
   const build = await buildSite({
     root: ctx.root,
@@ -155,6 +179,7 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
       kind: dist.kind,
       archive: { size_bytes: dist.sizeBytes, file_count: dist.fileCount },
       dry_run: true,
+      ...(conversion ? { conversion } : {}),
     };
   }
 
@@ -239,15 +264,20 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
     throw new CliError("INTERNAL_ERROR", "save_site_version returned no version id.");
   }
 
+  const mergedValues = new Map<string, { key: string; value: string }>();
+  for (const entry of conversionVariables(ctx.root)) mergedValues.set(entry.key, entry);
   if (ctx.options["env-file"]) {
-    const values = readEnvFile(ctx.root, String(ctx.options["env-file"]));
-    if (values.length) {
-      await client.callTool("sites.update_environment_variables", {
-        project_id: projectId,
-        set_values: values.map((entry) => ({ ...entry, is_secret: false, type: "envvar" })),
-        remove: [],
-      });
+    for (const entry of readEnvFile(ctx.root, String(ctx.options["env-file"]))) {
+      mergedValues.set(entry.key, entry);
     }
+  }
+  const values = [...mergedValues.values()];
+  if (values.length) {
+    await client.callTool("sites.update_environment_variables", {
+      project_id: projectId,
+      set_values: values.map((entry) => ({ ...entry, is_secret: false, type: "envvar" })),
+      remove: [],
+    });
   }
 
   ctx.log("[7/7] Deploy");

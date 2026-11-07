@@ -5,10 +5,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { CliError, EXIT } from "./errors.ts";
 import { readManifest } from "./manifest.ts";
+import { bundleWorker, resolveWorkerEntry } from "./bundler.ts";
 import type { Env } from "./types.ts";
 
 export interface BuildResult {
-  mode: "script" | "static-copy" | "worker-copy";
+  mode: "script" | "static-copy" | "worker-bundle" | "prebuilt";
   command: string | null;
 }
 
@@ -86,6 +87,9 @@ export async function buildSite(options: {
   if (manifest.static) {
     const source = path.join(root, "public");
     if (!fs.existsSync(source)) {
+      if (fs.existsSync(path.join(dist, "index.html"))) {
+        return { mode: "prebuilt", command: null };
+      }
       throw new CliError("PREFLIGHT_NO_BUILD_OUTPUT", "No build script and no public/ directory.", {
         exitCode: EXIT.PREFLIGHT,
         hint: "Add a build script or create public/index.html.",
@@ -96,14 +100,16 @@ export async function buildSite(options: {
     return { mode: "static-copy", command: null };
   }
 
-  const worker = path.join(root, "worker", "index.js");
-  if (!fs.existsSync(worker)) {
-    throw new CliError("PREFLIGHT_NO_BUILD_OUTPUT", "No build script and no worker/index.js.", {
+  const entry = resolveWorkerEntry(root);
+  if (!entry) {
+    if (fs.existsSync(path.join(dist, "server", "index.js"))) {
+      return { mode: "prebuilt", command: null };
+    }
+    throw new CliError("PREFLIGHT_NO_BUILD_OUTPUT", "No build script and no Worker entry.", {
       exitCode: EXIT.PREFLIGHT,
-      hint: "Add a build script that writes dist/server/index.js.",
+      hint: "Add a build script that writes dist/server/index.js, or a Worker entry file.",
     });
   }
-  fs.mkdirSync(path.join(dist, "server"), { recursive: true });
-  fs.copyFileSync(worker, path.join(dist, "server", "index.js"));
-  return { mode: "worker-copy", command: null };
+  await bundleWorker({ root, entry });
+  return { mode: "worker-bundle", command: null };
 }

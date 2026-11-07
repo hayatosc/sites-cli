@@ -9,6 +9,7 @@ import { CliError, EXIT } from "./errors.ts";
 import type { Manifest } from "./manifest.ts";
 import { readManifest } from "./manifest.ts";
 import { registerCleanup } from "./util.ts";
+import { validateBundleText } from "./bundler.ts";
 
 export const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 
@@ -66,25 +67,7 @@ function hashTree(dist: string, files: Array<{ relative: string }>): string {
 }
 
 function validateWorkerEntry(file: string, relative: string): void {
-  const text = fs.readFileSync(file, "utf8");
-  if (!/\bexport\s+default\b/.test(text)) {
-    throw new CliError("PREFLIGHT_INVALID_BUNDLE", `${relative} has no default export.`, {
-      exitCode: EXIT.PREFLIGHT,
-      hint: "Bundle the Worker into a single ESM file with `export default { fetch }`.",
-    });
-  }
-  if (/\brequire\s*\(/.test(text)) {
-    throw new CliError("PREFLIGHT_INVALID_BUNDLE", `${relative} uses require().`, {
-      exitCode: EXIT.PREFLIGHT,
-      hint: "Emit a single ESM bundle without CommonJS requires.",
-    });
-  }
-  if (/\bfrom\s+["'](?:\.{1,2}\/|\.{1,2}$)/.test(text) || /\bimport\s*\(\s*["']\.{1,2}\//.test(text)) {
-    throw new CliError("PREFLIGHT_INVALID_BUNDLE", `${relative} imports a relative file.`, {
-      exitCode: EXIT.PREFLIGHT,
-      hint: "Only `cloudflare:*` and `node:*` imports are supported. Bundle local modules.",
-    });
-  }
+  validateBundleText(fs.readFileSync(file, "utf8"), relative);
 }
 
 export function inspectDist(root: string, manifest: Manifest): DistInfo {
