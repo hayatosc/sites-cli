@@ -244,7 +244,7 @@ grant_type=refresh_token&refresh_token=<auth.json の値>&client_id=app_EMoamEEZ
 9. 環境変数は再デプロイで反映。→ `env set` の直後に「再デプロイが必要」を表示。
 10. カスタムドメインは CNAME + TXT 2 本。→ `domains add` の出力に 3 レコードをそのまま貼れる形で出す。apex は A 2 本 + TXT 2 本。
 11. 公開範囲の変更は 40–60 秒で反映。→ `access set` は `--wait` で `get_site` をポーリングし、デプロイツールの選択は `access_mode` から決める（`custom` 以外で private 系は 400）。
-12. `workspace_all` は API 受理のみ。→ CLI は「組織構成に依存し実効は保証しない」と警告する。
+12. `workspace_all` は API 受理のみで、実効は他ユーザー不在のため確定できない（§4）。→ CLI は「組織構成に依存し実効は保証しない」と警告する。
 13. マニフェストはキーのホワイトリスト方式。→ 未知キーは保存時に落ちるので、事前検査で同じキー集合を検査すればサーバ往復を減らせる。
 14. マイグレーションの適用順は文字列順。→ 非ゼロ埋めのファイル名を警告し、`10_` が `1_` より先に走ることを明記する。
 15. WebSocket は可、raw TCP は不可。→ `wrangler` の `[[durable_objects]]` が無い前提でも、`Upgrade` を返す Worker はそのまま通る。`cloudflare:sockets` は事前検査で警告（停止はしない）。
@@ -253,24 +253,26 @@ grant_type=refresh_token&refresh_token=<auth.json の値>&client_id=app_EMoamEEZ
 18. アナリティクスはバケット整列必須。→ CLI 側で `start`/`end` を 1 時間境界に丸めてから送る。
 19. API の揺れ（ツール数 497、`file_id` の欠落）。→ ツール数やフィールドの有無に依存しない。`file_id` は作成時の応答を保持する。
 
-## 4. 未検証として残ったもの
+## 4. 検証の最終判定
 
-round 1 の時点で残った項目は、round 2（§6）で全件を実測または「試して不可能と確定」にした。最終判定は次のとおり。
+round 1 で残った項目は、round 2（§6）で全 12 行を「実測」または「試みたが不可能と確定」のどちらかで閉じた。不可能と確定した 3 行も、何を試してどこで止まったかを併記する。
 
-| 項目 | 最終判定 | 根拠 |
-| --- | --- | --- |
-| `ASSETS` バインディング | **使える**（常に注入され、実体は `dist/client`） | §6.1 |
-| 公開サイト（`public`） | 実測（反映に 40–60 秒） | §6.2 |
-| `workspace_all` / 許可リスト | API 受理まで実測、実効は未検証 | §6.3 |
-| apex ドメイン | 受理され A 2 本 + TXT 2 本を返す | §6.4 |
-| WebSocket / raw TCP | WebSocket 可 / raw TCP 不可 | §6.5 |
-| KV / DO / Queues / Hyperdrive | 不可（未知キーは保存時に拒否） | §6.6 |
-| `_journal.json` なしの適用順 | 適用される。順序は**文字列順** | §6.7 |
-| 失敗デプロイの詳細 | `failed` + `failure_message` に生のエラー | §6.8 |
-| アナリティクス / サイト内 MCP / スケジュール | 読み取りと validate は実測、MCP は OAuth ゲート、スケジュールは削除 API 不在のため未作成 | §6.9 |
-| `workspace_all` の実効（他ユーザーでの確認） | 未検証 | — |
-| サイト内 MCP ハンドラの挙動 | 未検証（リソース向け OAuth トークンが必要） | §6.9 |
-| アナリティクスの新規イベント発生 | 未検証（検証期間の流入が少ない） | — |
+| 項目 | 試みたこと | 最終判定 | 根拠 |
+| --- | --- | --- | --- |
+| `ASSETS` バインディング | `env.ASSETS` の有無を確認し、`ASSETS.fetch()` で資産を取得。`capabilities: ["assets"]` も送信 | 実測 | §6.1 |
+| 公開サイト（`public`） | `update_site_access` で `public` に変更し、匿名アクセスと両デプロイツールを試行 | 実測 | §6.2 |
+| `workspace_all` / 許可リストの API 受理 | `workspace_all` への変更、不正グループ ID、外部メールを送信 | 実測 | §6.3 |
+| `workspace_all` の実効（他ユーザーでの閲覧） | 別アカウント・外部コラボレータでのアクセスを試みた | **試みたが不可能と確定**: このアカウントには組織・グループが無く、他ユーザーのセッションを用意できない。外部ユーザーの招待は本検証の許可範囲外 | §6.3 |
+| apex ドメイン | `add_custom_domain(hayatosc.dev)` の戻り値を確認し、DNS は作らず即削除 | 実測 | §6.4 |
+| WebSocket / raw TCP | 公開・非公開サイトで `wss://` 接続、`cloudflare:sockets` の `connect()` を 4 宛先で試行 | 実測 | §6.5 |
+| KV / DO / Queues / Hyperdrive | 推定キーをマニフェストに入れて保存し、実行時の `env` も確認 | 実測 | §6.6 |
+| `_journal.json` なしの適用順 | journal 無しの SQL を 2 通り（ゼロ埋め / 非ゼロ埋め）でデプロイし、記録順を確認 | 実測 | §6.7 |
+| 失敗デプロイの詳細 | 構文エラー・未解決 import・SQL エラー・static+d1 の 4 通りで失敗させ、`failure_message` を確認 | 実測 | §6.8 |
+| アナリティクス / スケジュール | `get_site_analytics_*`、`list_site_analytics_events`、`validate_suggested_schedule`、`create_schedule` を呼び出し | 実測（スケジュールは削除 API が無いため未作成） | §6.9 |
+| サイト内 MCP ハンドラの挙動 | `/mcp` にバイパストークンと Codex アクセストークンで `initialize` / `tools/list` を送信 | **試みたが不可能と確定**: エッジが `WWW-Authenticate: Bearer resource_metadata=…/.well-known/oauth-protected-resource/mcp` を返し、リソース向け OAuth トークンが必要。取得にはクライアント登録と同意フローが要り、本検証の範囲外 | §6.9 |
+| アナリティクスの新規イベント反映 | 検証中に `/`・`/hello.txt`・`/ws` 等へリクエストを発生させ、`list_site_analytics_events` を再取得 | **試みたが不可能と確定**: イベントは空のまま。反映は最大 1 時間バケットの確定待ちで、検証サイトは後片付けで削除済みのため待機できない | §6.9 |
+
+補足: 不可能と確定した 3 行は、いずれも「Sites 側の制約」ではなく「検証環境の制約」（他ユーザー不在 / OAuth クライアント登録が範囲外 / 時間窓と削除）。実装では API の受理結果までを前提にし、実効性に依存する機能（`workspace_all` の案内、サイト内 MCP の疎通確認、アナリティクスの即時表示）は提供しない。
 
 ## 5. 後片付け（実施済み）
 
@@ -328,7 +330,7 @@ round 1 の時点で残った項目は、round 2（§6）で全件を実測ま�
 | `allowed_workspace_group_ids:["grp_does_not_exist"]` | `INVALID_ARGUMENT invalid_access_policy`: `Invalid workspace group id: 'grp_does_not_exist'` |
 | `allowed_user_emails:["nobody@example.invalid"]` | `INVALID_ARGUMENT invalid_external_visitor_email`: `Invalid external visitor email address` |
 
-- API は `workspace_all` を受理するが、他ユーザーでの実効確認はできていない。CLI は指定時に「組織構成に依存する」旨の警告を出す。
+- API は `workspace_all` を受理する。他ユーザーでの実効確認は、組織・グループを持たないアカウントで他ユーザーのセッションを用意できず**試みたが不可能と確定**（§4）。CLI は指定時に「組織構成に依存し、実効は保証しない」旨の警告を出す。
 - グループ ID・外部メールはサーバ側で存在検証される。CLI 側は形式のみ検査する。
 
 ### 6.4 apex ドメイン
@@ -399,7 +401,7 @@ CLI は apex 指定時に A 2 本 + TXT 2 本を案内する（CNAME は出さ�
 - `start_time_ms` / `end_time_ms` はバケット境界に整列が必要（UTC-08:00 基準）。整列しないと `INVALID_ARGUMENT invalid_analytics_overview_query`。
 - `view:"classic"` は `request_traffic{total_requests, unique_visitors, points[{timestamp_ms, requests, unique_visitors, requests_by_type}], top_paths[{path, requests, unique_visitors}]}` を返す。`requests_by_type` は `page_load` / `api_call` / `unknown`。
 - `view:"list"` は `overall` / `timeseries` のみで `request_traffic` は `null`、`page_views` は 0 のプレースホルダ。
-- `list_site_analytics_events` は `{project_id, event_names: []}`。
+- `list_site_analytics_events` は `{project_id, event_names: []}`。検証中のリクエスト発生後も空のままで、反映は最大 1 時間バケットの確定待ち。サイト削除後に待機できないため**試みたが不可能と確定**（§4）。
 
 **(b) サイト内 MCP**
 
@@ -407,7 +409,7 @@ CLI は apex 指定時に A 2 本 + TXT 2 本を案内する（CNAME は出さ�
 - しかし `POST /mcp` はエッジの OAuth ゲートで 401:
   `WWW-Authenticate: Bearer resource_metadata="https://<site>/.well-known/oauth-protected-resource/mcp", scope="openid resource.invoke email"`
 - `/.well-known/oauth-protected-resource/mcp` は `{authorization_servers:["https://auth.openai.com"], bearer_methods_supported:["header"], resource, scopes_supported}` を返す。
-- バイパストークン（`OAI-Sites-Authorization`）でも Codex のアクセストークンでも 401。ハンドラの挙動は未検証。
+- バイパストークン（`OAI-Sites-Authorization`）でも Codex のアクセストークンでも 401。リソース向け OAuth トークンの取得にはクライアント登録と同意フローが必要で、**試みたが不可能と確定**（§4）。ハンドラの挙動は確認できていない。
 
 **(c) スケジュール**
 
