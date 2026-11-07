@@ -208,9 +208,11 @@ test("status returns exit 1 when the deployment failed", async () => {
 
 test("status --watch polls until success", async () => {
   const { root } = makeProject();
-  const mock = await createMockMcp((call, index) => {
+  let statusCalls = 0;
+  const mock = await createMockMcp((call) => {
     if (call.name === "sites.get_deployment_status") {
-      const status = index < 3 ? "publishing" : "succeeded";
+      statusCalls += 1;
+      const status = statusCalls < 3 ? "publishing" : "succeeded";
       return structured({
         id: "dep_9",
         status,
@@ -226,7 +228,7 @@ test("status --watch polls until success", async () => {
     });
     assert.equal(result.code, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).data.status, "succeeded");
-    assert.ok(mock.calls.filter((call) => call.name === "sites.get_deployment_status").length >= 3);
+    assert.equal(statusCalls, 3);
   } finally {
     await mock.close();
   }
@@ -270,6 +272,13 @@ test("deploy --dry-run builds without credentials", async () => {
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /Dry run OK/);
   assert.ok(fs.existsSync(path.join(root, "dist/index.html")));
+
+  const json = await runCli(["deploy", "--dry-run"], { cwd: root });
+  assert.equal(json.code, 0, json.stderr);
+  const body = JSON.parse(json.stdout);
+  assert.equal(body.data.detection.package_manager, "npm");
+  assert.equal(body.data.detection.build_script, "build");
+  assert.equal(body.data.detection.kind, "static");
 });
 
 test("deploy uploads, saves, polls, and records state", async () => {

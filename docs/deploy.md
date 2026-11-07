@@ -21,7 +21,7 @@ npx @hayatosc/sites deploy --message "Update pricing page"
 | Flag                          | Description                                                   |
 | ----------------------------- | ------------------------------------------------------------- |
 | `--dry-run`                   | Build and preflight only; no credentials, upload, or deployment |
-| `--no-build-script`           | Do not run the `build` script from `package.json`             |
+| `--no-build-script`           | Skip the build step                                           |
 | `--message <message>`         | Commit message for source synchronization                     |
 | `--tag <tag>`                 | Store a local tag in the state file                           |
 | `--private`                   | Make the site private after deployment                        |
@@ -48,12 +48,20 @@ If the working tree has uncommitted changes, the command stops with `CONFLICT_DI
 
 ## Build
 
-If `package.json` has a `build` script, the CLI runs it with the detected package manager. `--no-build-script` skips it.
+The CLI detects the project the same way `cf` does before building:
 
-Without a build script, the CLI prepares output according to the project type:
+1. Read `package.json` and lockfiles to choose the package manager.
+2. Detect a framework from its configuration file or dependency (Astro, Next.js, Nuxt, SvelteKit, Gatsby, Angular, Docusaurus, Remix, React Router, Qwik, Analog, Hugo, Vite, and Hono). Vite is treated as auxiliary when a more specific framework is present.
+3. Prefer a package script whose command contains the framework build command, then `build`, then `build:*`.
+4. Run the build through the detected package manager, or invoke the framework command with `npx`/`pnpm exec`/`yarn`/`bunx` when there is no script.
+5. Normalize the framework output directory (`dist`, `build`, `out`, `public`, `.output/public`, and similar) to `dist/`.
 
-- Static site: copy `public/` to `dist/`.
-- Worker: copy `worker/index.js` to `dist/server/index.js`.
+The detection result (framework, package manager, build command, output directory, and warnings) is included in the deploy JSON as `data.detection`. Conflicting frameworks stop the build with `PREFLIGHT_MULTIPLE_FRAMEWORKS`.
+
+When no framework or build script is found, the CLI prepares output according to the project type:
+
+- Static site: copy the detected asset directory, `public/`, or the project root to `dist/`.
+- Worker: copy `worker/index.js`, bundle a worker entry, or rebundle a detected worker output to `dist/server/index.js`.
 - wrangler project: bundle `main` to `dist/server/index.js` with Rolldown.
 
 The deployment stops during preflight if `dist/index.html` (static) or `dist/server/index.js` (Worker) is missing.

@@ -73,6 +73,8 @@ The default output is JSON. `--human` produces human-readable output. Progress a
 
 When `wrangler.jsonc`, `wrangler.json`, or `wrangler.toml` is present, `deploy` converts it to `.openai/hosting.json` and bundles the Worker with Rolldown. If an unsupported binding is present, the command stops without writing files. Use `--allow-unsupported <kind>` to continue intentionally.
 
+For other projects, `deploy` detects the framework, package manager, build command, and output directory using cf-compatible rules. Static output directories such as `dist`, `build`, `out`, `public`, and `.output/public` are normalized to `dist/`; worker output is rebundled to `dist/server/index.js`.
+
 ## Development
 
 ```sh

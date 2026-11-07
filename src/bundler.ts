@@ -172,7 +172,16 @@ export function resolveWorkerEntry(root: string): string | null {
       },
     );
   }
-  for (const candidate of ["worker/index.js", "src/index.js", "src/worker.js", "index.js"]) {
+  for (const candidate of [
+    "worker/index.js",
+    "worker/index.ts",
+    "src/worker.js",
+    "src/worker.ts",
+    "src/index.js",
+    "src/index.ts",
+    "index.js",
+    "index.ts",
+  ]) {
     const absolute = path.join(root, candidate);
     if (fs.existsSync(absolute)) return absolute;
   }

@@ -22,6 +22,7 @@ import type {
 } from "./api-types.ts";
 import type { CommandContext } from "./types.ts";
 import { stringOption } from "./util.ts";
+import type { ProjectDetection } from "./project-detect.ts";
 
 export interface DeployData {
   project_id: string;
@@ -37,6 +38,27 @@ export interface DeployData {
   archive?: { size_bytes: number; file_count: number };
   dry_run?: boolean;
   conversion?: ConversionReport;
+  detection?: Record<string, unknown>;
+}
+
+function detectionReport(detection: ProjectDetection, siteKind: SiteKind): Record<string, unknown> {
+  return {
+    framework: detection.framework
+      ? {
+          id: detection.framework.id,
+          name: detection.framework.name,
+          build_command: detection.framework.buildCommand,
+          output_directory: detection.framework.outputDirectory,
+          kind: detection.framework.kind,
+        }
+      : null,
+    package_manager: detection.packageManager,
+    build_script: detection.buildScript,
+    build_command: detection.buildCommand,
+    output_directory: detection.outputDirectory,
+    kind: siteKind,
+    warnings: detection.warnings,
+  };
 }
 
 function accessModeFromFlags(ctx: CommandContext): "custom" | "public" | "workspace_all" | null {
@@ -204,6 +226,7 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
       kind: dist.kind,
       archive: { size_bytes: dist.sizeBytes, file_count: dist.fileCount },
       dry_run: true,
+      detection: detectionReport(build.detection, dist.kind),
       ...(conversion ? { conversion } : {}),
     };
   }
@@ -366,6 +389,7 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
     kind: dist.kind,
     commit_pushed: pushed,
     archive: { size_bytes: archiveSizeOf(archive), file_count: archive.fileCount },
+    detection: detectionReport(build.detection, dist.kind),
   };
 }
 
