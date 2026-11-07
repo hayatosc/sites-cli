@@ -142,6 +142,8 @@ JSON 出力時は構造化する。
 | `sites docs search` | ドキュメント検索 | `cf docs search` |
 | `sites schema` | API スキーマのダンプ | `cf schema` |
 
+コマンドごとの差分は §8.2、実行環境の差分は §8.1 にまとめてある。
+
 **`sites build` は存在しない。** ビルドは `sites deploy` の内部処理で、ビルドだけを確認したい場合は `sites deploy --dry-run` を使う（アップロードもソース同期もしない）。`cf build` のように単体で成果物だけ作る操作は提供しない。
 
 ## 4. コマンド仕様
@@ -641,7 +643,74 @@ await build({
 
 停止したときは何も書き換えない（`hosting.json` を作らず、`dist/` も消さない）。停止理由は 1 件目で止めずに全部列挙する。
 
-## 8. 非対応事項
+## 8. Cloudflare（Workers / cf）との比較
+
+実装時に「cf と同じにすべきか、Sites の都合に合わせるか」を判断するための基準。左が Cloudflare 側の一般論、右が Sites の実測済みの挙動。
+
+### 8.1 実行環境・機能
+
+| 項目 | Cloudflare Workers（wrangler） | ChatGPT Sites | 実装での扱い |
+| --- | --- | --- | --- |
+| 設定ファイル | `wrangler.jsonc` / `wrangler.toml`、`cf` は `cloudflare.config.ts` | `.openai/hosting.json`（キーはホワイトリスト） | 変換する（§7）。未知キーは拒否される |
+| バインディング | KV / DO / Queues / Service Bindings / Hyperdrive / Vectorize / AI / D1 / R2 | **D1 と R2 のみ**（バインディング名で指定） | D1/R2 以外は変換停止（§7.5） |
+| 静的資産 | `assets.directory` + `env.ASSETS` | `dist/client/` を配信。`env.ASSETS` は**宣言なしで常に注入** | `assets` はそのまま移せる |
+| ランタイム | `compatibility_date` / `compatibility_flags` で制御 | `nodejs_compat` が常に有効。compat 指定は不可 | 警告のみ（§7.4） |
+| WebSocket | 可 | 可（`wss://` で双方向） | そのまま動く |
+| raw TCP | `cloudflare:sockets` で可 | **不可**（`Stream was cancelled.`） | 変換停止・利用者に明示 |
+| WASM | import して instantiate 可 | **不可**（`Wasm code generation disallowed by embedder`） | 埋め込みもしない（§7.5） |
+| Cron | `triggers.crons` | **無し**（`create_schedule` / `offer_site_schedule`） | 警告。移行は手動 |
+| 環境変数 | `vars` / `secrets`（`wrangler secret put`） | `update_environment_variables`（`is_secret` 付き） | `vars` は変換。秘密は入れ直し |
+| 反映のタイミング | 次のデプロイで反映 | **次のデプロイで反映**（同じバージョンの再デプロイでも可） | `env set` は自動デプロイしない |
+| カスタムドメイン | `routes` / `custom_domains` + DNS | `add_custom_domain` + 検証レコード（CNAME + TXT 2 本、apex は A 2 本 + TXT 2 本） | DNS は自動化しない |
+| アクセス制御 | Cloudflare Access（Zero Trust） | `access_mode`（`custom` / `public` / `workspace_all`）、反映に 40〜60 秒 | `sites access` で扱う |
+| デプロイ単位 | Worker の version + deployment | site version（`commit_sha` で重複排除）+ deployment | 同じ commit の再保存は古い内容を返す |
+| 状態名 | `active` など | `pending` → `publishing` → `succeeded` / `failed` / `error` | API の語彙をそのまま出す |
+| ロールバック | version / deployment を切り替え | 過去の `version_id` を再デプロイ（新バージョンは作らない） | `sites versions rollback` |
+| ログ | `wrangler tail` / `cf logs retrieve` | pull 型（`since_minutes` / `limit` / `errors_only`） | ライブテールは無い |
+| アナリティクス | GraphQL Analytics | overview API（UTC-08:00 基準の 1 時間バケット） | 窓を丸める |
+| ローカル開発 | `wrangler dev` | **無し** | `sites dev` は作らない |
+| プレビュー | preview URL / `cf previews deploy` | **無し** | `sites preview` は作らない |
+| 上限 | Worker 10 MB（有料）、isolate 128 MB | アーカイブ 512 MiB、isolate 128 MB、D1 10 GB/サイト | tar 前にサイズ検査 |
+| 認証 | `cf auth login`（OAuth、`~/.config/cloudflare/`） | 無し（**Codex の `auth.json` を共有**） | 独自ログインを作らない |
+| CI からのビルド | `wrangler build` / `cf build`（資格情報不要） | ビルド専用 API は無い | `sites deploy --dry-run` で代替 |
+
+### 8.2 CLI（cf との対応と差分）
+
+| やりたいこと | cf | sites | 差分 |
+| --- | --- | --- | --- |
+| ログイン | `cf auth login`（ブラウザ / デバイス OAuth） | **無し** | Codex CLI にログイン済みであることが前提。`sites auth whoami` だけ提供 |
+| 資格情報の確認 | `cf auth whoami`（JSON） | `sites auth whoami` | 同じく JSON。`--check` で疎通確認を追加 |
+| プロファイル | `cf auth create/list/activate/delete` | `--profile` のみ | 実質 1 プロファイル |
+| 雛形作成 | `cf init [dir]`（Vite + `cloudflare.config.ts`） | `sites init [dir] --template static\|worker-esm` | 作る中身が違う（Sites のマニフェスト） |
+| ビルドのみ | `cf build` | **無し** | `sites deploy --dry-run`（成果物は残る） |
+| デプロイ | `cf deploy`（`--dry-run` / `--prebuilt` / `--tag` / `--message` / `--secrets-file` / `--worker` / `--provision`） | `sites deploy`（`--dry-run` / `--no-build-script` / `--tag` / `--message` / `--env-file` / `--no-source-sync`） | `--prebuilt`→`--no-build-script`、`--secrets-file`→`--env-file`。`--worker` / `--provision` / `--containers-rollout` / `--dispatch-namespace` は非対応（終了コード 2） |
+| デプロイ状態 | `cf workers deployments list` | `sites status`（`--watch`） | 状態名の語彙が違う |
+| バージョン | `cf workers versions list` | `sites versions list/show/rollback` | `rollback` は Sites 固有 |
+| ログ | `cf logs retrieve` / `cf o11y telemetry live-tail` | `sites logs --follow`（ポーリング） | ライブテールは無い |
+| リソース作成 | `cf create`（KV / R2 / D1 など） | `sites create <slug>`（**サイト作成**） | 名前が同じで意味が違う。混同しない |
+| 削除 | `cf delete`（リソース） | `sites delete`（サイト。取り消し不可） | 対象が違う |
+| 一覧 | （なし） | `sites list` | Sites 固有 |
+| 詳細 | （なし） | `sites info` | Sites 固有 |
+| 環境変数 | `cf deploy --secrets-file` | `sites env list/get/set/unset/pull/push` | 独立コマンド。反映には再デプロイ |
+| 公開範囲 | Cloudflare Access のポリシー | `sites access show/set` | Sites 固有の `access_mode` |
+| ドメイン | `cf dns records` / `cf zones` | `sites domains add/list/refresh/remove` | DNS の作成は行わない |
+| 解析 | （なし） | `sites analytics` | Sites 固有 |
+| ブラウザ | （なし） | `sites open` | Sites 固有 |
+| 診断 | `cf workers check` など | `sites doctor` | 認証・変換・git まで含む |
+| コマンド発見 | `cf cli search` / `cf docs search` / `cf schema` | `sites cli search` / `sites docs search` / `sites schema` | 同じ思想（ネストした `--help` 探索を推奨しない） |
+| 設定 | `cloudflare.config.ts`、`~/.config/cloudflare/` | `.openai/hosting.json`、`~/.config/sites/config.json` | 資格情報は置かない |
+| 共通フラグ | `-q/--quiet`、`--json`、`--no-color`、`-y/--yes`、`-h`、`-v` | 同じ | `-z/--zone`、`--local`、`--persist-to`、`-m/--mode` は非対応（終了コード 2） |
+
+### 8.3 どちらに寄せるかの基準
+
+1. **名前と既定値は cf に合わせる**。`deploy` / `--dry-run` / `--message` / `--tag` / `-q` / `-y` は同じ意味で使う。
+2. **Sites に概念が無いものは、黙って無視せずエラーで止める**。`--local` や `-z` を受けて別の動きをするより、終了コード 2 の方が事故が少ない。
+3. **データ系の出力は JSON を既定にする**（cf のデータ系コマンドと同じ）。人間可読は `--human` の明示指定に限る。
+4. **`--dry-run` は資格情報を要求しない**（`cf build` と同じ）。CI の検査はここで担保する。
+5. **Sites 固有の概念（公開範囲・ドメイン検証・アナリティクス・サイト内 MCP）は cf に対応物を作らず、`sites` の独立コマンドにする**。
+6. **危険な操作は cf より厳しくする**。`sites delete` は非 TTY で `--yes` 必須、`--public` 付きデプロイは確認を挟む。
+
+## 9. 非対応事項
 
 | 項目 | 理由 |
 | --- | --- |
@@ -656,7 +725,7 @@ await build({
 | DNS レコードの自動作成 | 検証レコードの提示まで。作成は利用者が行う |
 | サイト内 MCP の疎通確認 | `/mcp` はリソース向け OAuth が必要で、CLI からは検証できない |
 
-## 9. 未決定事項
+## 10. 未決定事項
 
 1. **配布形態**: リポジトリ名（`sites-cli` のままか）、npm 公開の有無、`npx sites` を許すか。単一 `.mjs` をそのまま配る案と、npm に publish する案がある。
 2. **Rolldown の入手方法**: 依存なしの前提で、プロジェクト側の `rolldown` を使うか `npx rolldown` を呼ぶか。どちらも無い場合に「バンドルせず単一 ESM を要求する」へ落とすか。
