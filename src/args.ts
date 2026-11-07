@@ -65,16 +65,15 @@ export const FLAG_DEFS: Record<string, FlagDefinition> = {
   "errors-only": { type: "boolean" },
   follow: { type: "boolean" },
 
-  "make-hosting-json": { type: "boolean" },
 
   previous: { type: "boolean" },
   secret: { type: "boolean" },
   out: { type: "string" },
   "allow-email": { type: "string", multiple: true },
   wait: { type: "boolean" },
-  "with-assets": { type: "boolean" },
   view: { type: "string" },
   print: { type: "boolean" },
+  path: { type: "string" },
   offline: { type: "boolean" },
   "fix-git": { type: "boolean" },
   verbose: { type: "boolean" },

@@ -278,6 +278,13 @@ export class McpClient {
     return { protocolVersion: result?.protocolVersion, serverInfo };
   }
 
+  async listTools(): Promise<Array<{ name: string; description?: string; inputSchema?: unknown }>> {
+    const result = (await this.post("tools/list", {})) as {
+      tools?: Array<{ name: string; description?: string; inputSchema?: unknown }>;
+    } | undefined;
+    return result?.tools ?? [];
+  }
+
   async callTool<T = Record<string, unknown>>(name: string, args: Record<string, unknown> = {}): Promise<T> {
     const result = (await this.post("tools/call", { name, arguments: args })) as ToolResult | undefined;
     if (result?.isError) throw errorFromToolResult(result, name);

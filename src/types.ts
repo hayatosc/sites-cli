@@ -16,6 +16,8 @@ export interface CommandResult<T = unknown> {
   // Method syntax keeps the callback bivariant so concrete results can be
   // registered as an erased CommandDefinition.
   human?(data: T): void;
+  /** Writes raw stdout instead of the JSON envelope (e.g. `open --print`). */
+  raw?: string;
   /** Overrides the process exit code for successful (non-throwing) results. */
   exitCode?: number;
 }

@@ -214,10 +214,21 @@ export function registerDeployCommands(define: DefineCommand): void {
         registerCleanup(() => {
           stopped = true;
         });
-        const interval = Number(ctx.env.SITES_LOG_INTERVAL_MS ?? 5000);
+        const baseInterval = Number(ctx.env.SITES_LOG_INTERVAL_MS ?? 5000);
+        let interval = baseInterval;
         while (!stopped) {
           await sleep(interval);
-          await fetchOnce();
+          try {
+            await fetchOnce();
+            interval = baseInterval;
+          } catch (error) {
+            if (error instanceof CliError && error.code === "RATE_LIMITED") {
+              interval = Math.min(interval * 2, 60_000);
+              ctx.log(`rate limited; polling again in ${Math.round(interval / 1000)}s`);
+              continue;
+            }
+            throw error;
+          }
         }
       }
 

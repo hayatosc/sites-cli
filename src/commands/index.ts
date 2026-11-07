@@ -6,6 +6,14 @@ import { registerSiteCommands } from "./sites.ts";
 import { registerInitCommands } from "./init.ts";
 import { registerCreateCommands } from "./create.ts";
 import { registerDeployCommands } from "./deploy.ts";
+import { registerVersionCommands } from "./versions.ts";
+import { registerEnvCommands } from "./env.ts";
+import { registerAccessCommands } from "./access.ts";
+import { registerDomainCommands } from "./domains.ts";
+import { registerAnalyticsCommands } from "./analytics.ts";
+import { registerOpenDeleteCommands } from "./open.ts";
+import { registerDoctorCommands } from "./doctor.ts";
+import { registerDocsCommands } from "./docs.ts";
 
 export function createCommands(): CommandDefinition[] {
   const commands: CommandDefinition[] = [];
@@ -17,5 +25,13 @@ export function createCommands(): CommandDefinition[] {
   registerInitCommands(define);
   registerCreateCommands(define);
   registerDeployCommands(define);
+  registerVersionCommands(define);
+  registerEnvCommands(define);
+  registerAccessCommands(define);
+  registerDomainCommands(define);
+  registerAnalyticsCommands(define);
+  registerOpenDeleteCommands(define);
+  registerDoctorCommands(define);
+  registerDocsCommands(define, commands);
   return commands;
 }

@@ -95,7 +95,9 @@ export async function main(
     const meta: Record<string, unknown> = { duration_ms: Date.now() - started };
     const requestId = (client as McpClient | null)?.requestId;
     if (requestId) meta.request_id = requestId;
-    if (json) {
+    if (result.raw !== undefined) {
+      stdout.write(result.raw);
+    } else if (json) {
       stdout.write(stringifyJson({ ok: true, data: result.data, meta }) + "\n");
     } else if (result.human) {
       result.human(result.data);
