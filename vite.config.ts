@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
 
 const PROJECT_ROOT = path.dirname(fileURLToPath(import.meta.url));
-const DOCS_ROOT = path.join(PROJECT_ROOT, "docs", "manual");
+const DOCS_ROOT = path.join(PROJECT_ROOT, "docs");
 const VIRTUAL_DOCS = "virtual:sites-docs";
 const RESOLVED_DOCS = "\0sites-docs";
 
@@ -37,7 +37,7 @@ function docsBundlePlugin() {
     },
     load(id: string) {
       if (id !== RESOLVED_DOCS) return undefined;
-      const docs = collectDocs(DOCS_ROOT, "manual");
+      const docs = collectDocs(DOCS_ROOT);
       return `export const bundledDocs = ${JSON.stringify(docs)};`;
     },
   };

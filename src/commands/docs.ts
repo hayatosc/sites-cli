@@ -27,7 +27,7 @@ interface ToolSchema {
 function terms(text: string): string[] {
   return text
     .toLowerCase()
-    .split(/[^\p{L}\p{N}_]+/u)
+    .split(/[^\p{L}\p{N}_-]+/u)
     .filter((word) => word.length >= 2);
 }
 

@@ -4,19 +4,21 @@ import { test } from "vite-plus/test";
 import assert from "node:assert/strict";
 import { runCli, tempDir } from "./helpers/index.ts";
 
-test("docs search finds Japanese terms in the bundled manual", async () => {
+test("docs search reads the bundled manual from any working directory", async () => {
   const cwd = tempDir("sites-docs-");
-  const result = await runCli(["docs", "search", "カスタムドメイン"], { cwd });
+  const result = await runCli(["docs", "search", "custom domain"], { cwd });
   assert.equal(result.code, 0, result.stderr);
   const body = JSON.parse(result.stdout);
   assert.ok(body.data.results.length > 0);
-  assert.ok(body.data.results.every((hit: { file: string }) => hit.file.startsWith("manual/")));
+  assert.ok(body.data.results.some((hit: { file: string }) => hit.file === "operations.md"));
   assert.ok(
-    body.data.results.some((hit: { heading: string }) => hit.heading.includes("カスタムドメイン")),
+    body.data.results.some((hit: { heading: string }) =>
+      hit.heading.toLowerCase().includes("custom domain"),
+    ),
   );
 });
 
-test("docs search finds English deploy terms without a docs directory", async () => {
+test("docs search finds deploy flags without a docs directory", async () => {
   const cwd = tempDir("sites-docs-");
   const result = await runCli(["docs", "search", "dry-run"], { cwd });
   assert.equal(result.code, 0, result.stderr);
