@@ -80,4 +80,4 @@ nlx vp test
 nlx vp pack
 ```
 
-`dist/cli.mjs` が実行ファイルです。ビルド・テスト・lint・整形・型チェックは Vite+ (`vp`) に統一しています。
+`dist/cli.mjs` が実行ファイルです。ビルド・テスト・lint・整形・型チェックは Vite+ (`vp`) に統一しています。利用者向けマニュアルは `docs/manual/` にあり、ビルド時に CLI へ埋め込まれるため、`sites docs search` は外部の `docs/` を必要としません。

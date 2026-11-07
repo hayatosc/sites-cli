@@ -37,6 +37,7 @@
 
 - **TypeScript のソースを `src/` に分割**して実装し、Vite+ の `vp pack`（tsdown）で単一ファイル `dist/cli.mjs` にバンドルして配布する。`package.json` の `bin`（`sites`）は `dist/cli.mjs` を指す。実行時依存は同梱する Rolldown のみ。
 - 開発ツールは Vite+ に統一する。`vite-plus` を開発依存に置き、型チェック・lint・整形は `vp check`、テストは Vitest（`vp test`、`vite-plus/test` から import）を使う。設定は `vite.config.ts` に集約する。
+- 利用者向けマニュアルは `docs/manual/` に置き、`vp pack` 時に仮想モジュールとして CLI へ埋め込む。`sites docs search` は実行時に外部の `docs/` を読まない。
 - そのため次のものは自前で実装する。
   - SSE の解析（`data:` 行の連結。JSON がそのまま返る場合も受ける）
   - JSONC のコメント・末尾カンマの除去
@@ -407,7 +408,7 @@ sites analytics events [--since 24h]
 
 ```bash
 sites cli search "<task>"       # コマンド候補を最大 5 件、JSON で
-sites docs search "<question>"  # docs/ 配下の Markdown から該当節を返す
+sites docs search "<question>"  # CLI に埋め込んだ docs/manual/ の Markdown から該当節を返す
 sites schema [<tool>]           # MCP ツールの入力スキーマをダンプ
 ```
 

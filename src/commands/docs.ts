@@ -1,8 +1,6 @@
 // `sites cli search`, `sites docs search`, and `sites schema` (plan §4).
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { bundledDocs } from "virtual:sites-docs";
 import type { CommandDefinition, CommandResult, DefineCommand } from "../types.ts";
 import { CliError, usageError } from "../errors.ts";
 
@@ -29,7 +27,7 @@ interface ToolSchema {
 function terms(text: string): string[] {
   return text
     .toLowerCase()
-    .split(/[^a-z0-9_]+/)
+    .split(/[^\p{L}\p{N}_]+/u)
     .filter((word) => word.length >= 2);
 }
 
@@ -43,31 +41,18 @@ function scoreText(text: string, query: string[]): number {
   return score;
 }
 
-function docRoots(): string[] {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  return [
-    path.join(process.cwd(), "docs"),
-    path.resolve(here, "../docs"),
-    path.resolve(here, "../../docs"),
-  ];
-}
-
 function readSections(): DocSection[] {
-  const root = docRoots().find((candidate) => fs.existsSync(candidate));
-  if (!root) return [];
   const sections: DocSection[] = [];
-  for (const name of fs.readdirSync(root).sort()) {
-    if (!name.endsWith(".md")) continue;
-    const file = path.join(root, name);
-    const lines = fs.readFileSync(file, "utf8").split("\n");
-    let heading = name;
+  for (const doc of bundledDocs) {
+    const lines = doc.content.split("\n");
+    let heading = doc.file;
     let start = 1;
     let body: string[] = [];
     const flush = (): void => {
       const text = body.join("\n").trim();
       if (text) {
         sections.push({
-          file: name,
+          file: doc.file,
           heading,
           line: start,
           excerpt: text.length > 320 ? `${text.slice(0, 317)}...` : text,
