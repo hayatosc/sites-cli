@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.sites/
+*.tgz
+.DS_Store
