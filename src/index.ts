@@ -90,6 +90,9 @@ export async function main(
     log: (text: string) => {
       if (!parsed.options.quiet) stderr.write(text + "\n");
     },
+    success: (text: string) => {
+      stderr.write(`✓ ${text}\n`);
+    },
     mcp: () => {
       client ??= new McpClient(getIdentity(), { env });
       return client;

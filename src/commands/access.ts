@@ -122,12 +122,13 @@ export function registerAccessCommands(define: DefineCommand): void {
           );
         }
       }
+      ctx.success(`Updated access mode to ${site.access_mode ?? mode}`);
       return {
         data: toData(projectId, site),
         human: (value) => {
           ctx.stdout.write(`access: ${value.access_mode}\n`);
           if (value.access_mode !== mode) {
-            ctx.stdout.write(`要求 ${mode} は反映待ちです（40〜60秒）。\n`);
+            ctx.stdout.write(`Requested ${mode}; propagation can take 40-60 seconds.\n`);
           }
         },
       };

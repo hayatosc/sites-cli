@@ -7,6 +7,7 @@ import type { EnvironmentEntry, EnvironmentResult } from "../api-types.ts";
 import { resolveProjectRef } from "../manifest.ts";
 import { CliError, EXIT, usageError } from "../errors.ts";
 import { booleanOption, stringOption } from "../util.ts";
+import { readEnvFile } from "../env-file.ts";
 
 const KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -60,38 +61,6 @@ function parseAssignment(raw: string | undefined): { key: string; value: string 
   return { key, value: raw.slice(equal + 1) };
 }
 
-function parseEnvFile(root: string, file: string): Array<{ key: string; value: string }> {
-  const absolute = path.isAbsolute(file) ? file : path.join(root, file);
-  let raw: string;
-  try {
-    raw = fs.readFileSync(absolute, "utf8");
-  } catch {
-    throw new CliError("PREFLIGHT_ENV_FILE", `Cannot read env file: ${file}`, {
-      exitCode: EXIT.PREFLIGHT,
-    });
-  }
-  const entries: Array<{ key: string; value: string }> = [];
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const equal = trimmed.indexOf("=");
-    if (equal <= 0) {
-      throw new CliError("PREFLIGHT_ENV_FILE", `Invalid env file line: ${trimmed}`, {
-        exitCode: EXIT.PREFLIGHT,
-        hint: "Use KEY=VALUE lines.",
-      });
-    }
-    const key = trimmed.slice(0, equal).trim();
-    if (!KEY_PATTERN.test(key)) {
-      throw new CliError("PREFLIGHT_ENV_FILE", `Invalid environment variable name: ${key}`, {
-        exitCode: EXIT.PREFLIGHT,
-      });
-    }
-    entries.push({ key, value: trimmed.slice(equal + 1) });
-  }
-  return entries;
-}
-
 function table(ctx: CommandContext, header: string[], rows: string[][]): void {
   const widths = header.map((cell, index) =>
     Math.max(cell.length, ...rows.map((row) => row[index].length)),
@@ -126,7 +95,7 @@ export function registerEnvCommands(define: DefineCommand): void {
         data: { project_id: projectId, revision: environment.revision ?? null, entries },
         human: (value) => {
           if (!value.entries.length) {
-            ctx.stdout.write("環境変数がありません。\n");
+            ctx.stdout.write("No environment variables.\n");
             return;
           }
           table(
@@ -204,6 +173,7 @@ export function registerEnvCommands(define: DefineCommand): void {
           { key: assignment.key, value: assignment.value, is_secret: secret, type: "envvar" },
         ],
       });
+      ctx.success(`Set ${assignment.key}`);
       return {
         data: {
           project_id: projectId,
@@ -214,7 +184,7 @@ export function registerEnvCommands(define: DefineCommand): void {
         },
         human: (value) => {
           ctx.stdout.write(
-            `${value.key} を設定しました${value.is_secret ? "（秘密）" : ""}。次のデプロイで反映されます。\n`,
+            `Set ${value.key}${value.is_secret ? " (secret)" : ""}. It will apply on the next deploy.\n`,
           );
         },
       };
@@ -234,10 +204,11 @@ export function registerEnvCommands(define: DefineCommand): void {
         project_id: projectId,
         remove: [key],
       });
+      ctx.success(`Removed ${key}`);
       return {
         data: { project_id: projectId, removed: key },
         human: (value) => {
-          ctx.stdout.write(`${value.removed} を削除しました。次のデプロイで反映されます。\n`);
+          ctx.stdout.write(`Removed ${value.removed}. It will apply on the next deploy.\n`);
         },
       };
     },
@@ -284,10 +255,10 @@ export function registerEnvCommands(define: DefineCommand): void {
           secrets_skipped: secretsSkipped,
         },
         human: (value) => {
-          ctx.stdout.write(`${value.out} に ${value.keys.length} 件を書き出しました。\n`);
+          ctx.stdout.write(`Wrote ${value.keys.length} keys to ${value.out}.\n`);
           if (value.secrets_skipped) {
             ctx.stdout.write(
-              `秘密値 ${value.secrets_skipped} 件は読み戻せないためコメントとして残しました。\n`,
+              `Left ${value.secrets_skipped} secret values as comments because they cannot be read back.\n`,
             );
           }
         },
@@ -306,7 +277,7 @@ export function registerEnvCommands(define: DefineCommand): void {
     ): Promise<CommandResult<{ project_id: string; keys: string[]; dry_run: boolean }>> => {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const file = stringOption(ctx.options, "env-file") ?? ".env";
-      const entries = parseEnvFile(ctx.root, file);
+      const entries = readEnvFile(ctx.root, file);
       const dryRun = booleanOption(ctx.options, "dry-run");
       if (!dryRun && entries.length) {
         await ctx.mcp().callTool("sites.update_environment_variables", {
@@ -314,14 +285,15 @@ export function registerEnvCommands(define: DefineCommand): void {
           set_values: entries.map((entry) => ({ ...entry, is_secret: false, type: "envvar" })),
         });
       }
+      if (!dryRun) ctx.success(`Updated ${entries.length} environment keys`);
       return {
         data: { project_id: projectId, keys: entries.map((entry) => entry.key), dry_run: dryRun },
         human: (value) => {
           if (value.dry_run) {
-            ctx.stdout.write(`dry-run: ${value.keys.length} 件を送信します。\n`);
+            ctx.stdout.write(`Dry run: would update ${value.keys.length} keys.\n`);
           } else {
             ctx.stdout.write(
-              `${value.keys.length} 件を設定しました。次のデプロイで反映されます。\n`,
+              `Updated ${value.keys.length} keys. They will apply on the next deploy.\n`,
             );
           }
         },

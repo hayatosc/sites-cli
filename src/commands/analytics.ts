@@ -109,7 +109,7 @@ export function registerAnalyticsCommands(define: DefineCommand): void {
         data: { project_id: projectId, ...window, events },
         human: (value) => {
           if (!value.events.length) {
-            ctx.stdout.write("イベントはありません。\n");
+            ctx.stdout.write("No events.\n");
             return;
           }
           for (const event of value.events) {

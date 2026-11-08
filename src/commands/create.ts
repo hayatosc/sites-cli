@@ -110,6 +110,7 @@ export function registerCreateCommands(define: DefineCommand): void {
         });
       }
       writeManifest(ctx.root, { ...manifest, project_id: projectId });
+      ctx.success(`Created site ${slug}`);
 
       const data: CreateData = {
         project_id: projectId,

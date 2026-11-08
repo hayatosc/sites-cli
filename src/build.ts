@@ -89,12 +89,17 @@ export async function buildSite(options: {
   root: string;
   env?: Env;
   noBuildScript: boolean;
+  prebuilt?: boolean;
   log: (text: string) => void;
 }): Promise<BuildResult> {
   const { root, log } = options;
   const env = options.env ?? {};
   const detection = detectProject(root);
   for (const warning of detection.warnings) log(`warning: ${warning}`);
+
+  if (options.prebuilt) {
+    return { mode: "prebuilt", command: null, detection };
+  }
 
   let mode: BuildResult["mode"] = "prebuilt";
   let command: string | null = null;

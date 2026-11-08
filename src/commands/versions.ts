@@ -81,7 +81,7 @@ export function registerVersionCommands(define: DefineCommand): void {
         data: { items, cursor: result.cursor ?? null },
         human: (value) => {
           if (!value.items.length) {
-            ctx.stdout.write("バージョンがありません。\n");
+            ctx.stdout.write("No versions.\n");
             return;
           }
           table(
@@ -185,6 +185,7 @@ export function registerVersionCommands(define: DefineCommand): void {
         project_id: projectId,
         version_id: versionId,
       });
+      ctx.success(`Rolled back to ${versionId}`);
       return {
         data: {
           project_id: projectId,

@@ -21,7 +21,7 @@ export function displayPath(target: string, home = homeDir(process.env as Env)):
   return target.startsWith(home + path.sep) ? "~" + target.slice(home.length) : target;
 }
 
-const jstFormatter = new Intl.DateTimeFormat("ja-JP", {
+const jstFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "Asia/Tokyo",
   year: "numeric",
   month: "2-digit",
@@ -32,7 +32,7 @@ const jstFormatter = new Intl.DateTimeFormat("ja-JP", {
 });
 
 export function formatJst(iso: string | null | undefined): string {
-  if (!iso) return "不明";
+  if (!iso) return "Unknown";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return String(iso);
   const parts = jstFormatter.formatToParts(date);

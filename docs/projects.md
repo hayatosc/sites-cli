@@ -85,10 +85,10 @@ Delete a site. This cannot be undone.
 
 ```sh
 npx @hayatosc/sites delete my-site
-npx @hayatosc/sites delete --yes
+npx @hayatosc/sites delete --force
 ```
 
-`--yes` is required when stdin is not a TTY. After deletion, `project_id` in `hosting.json` is set to `null`; other settings are preserved.
+`--force` (or `-f`) skips the confirmation prompt and is required when stdin is not a TTY. After deletion, `project_id` in `hosting.json` is set to `null`; other settings are preserved.
 
 ## Local state
 

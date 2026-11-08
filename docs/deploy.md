@@ -21,13 +21,16 @@ npx @hayatosc/sites deploy --message "Update pricing page"
 | Flag                          | Description                                                   |
 | ----------------------------- | ------------------------------------------------------------- |
 | `--dry-run`                   | Build and preflight only; no credentials, upload, or deployment |
-| `--no-build-script`           | Skip the build step                                           |
+| `--prebuilt`                  | Deploy existing `dist/` output without running the build      |
+| `--no-build-script`           | Skip the project build command but still normalize output     |
 | `--message <message>`         | Commit message for source synchronization                     |
 | `--tag <tag>`                 | Store a local tag in the state file                           |
 | `--private`                   | Make the site private after deployment                        |
 | `--public`                    | Make the site public after deployment                         |
 | `--workspace`                 | Make the site workspace-visible after deployment              |
 | `--env-file <path>`           | Apply environment variables during deployment                 |
+| `--secrets-file <path>`       | Apply secret variables from a JSON or dotenv file             |
+| `--force`, `-f`               | Skip the public-deploy confirmation prompt                     |
 | `--no-source-sync`            | Skip source synchronization                                   |
 | `--allow-dirty`               | Continue even with uncommitted changes                        |
 | `--allow-unsupported <kinds>` | Downgrade unsupported wrangler features to warnings (comma-separated) |
@@ -46,12 +49,20 @@ Only one access option may be specified. When `--public` is used outside an inte
 
 If the working tree has uncommitted changes, the command stops with `CONFLICT_DIRTY_TREE` (exit code 5) unless `--allow-dirty` is given. Use `--no-source-sync` to skip synchronization; this requires a recent commit.
 
+## Environment and secrets
+
+`deploy --env-file` stores non-secret variables. `deploy --secrets-file` stores secret variables and accepts either dotenv or a JSON object. Secret files expand `$VAR` and `${VAR}` references using process environment values and earlier entries; process environment values override file values, even when empty. Only keys declared in the file are uploaded.
+
+```sh
+npx @hayatosc/sites deploy --secrets-file .env.secrets
+```
+
 ## Build
 
 The CLI detects the project the same way `cf` does before building:
 
 1. Read `package.json` and lockfiles to choose the package manager.
-2. Detect a framework from its configuration file or dependency (Astro, Next.js, Nuxt, SvelteKit, Gatsby, Angular, Docusaurus, Remix, React Router, Qwik, Analog, Hugo, Vite, and Hono). Vite is treated as auxiliary when a more specific framework is present.
+2. Detect a framework from its configuration file or dependency (Astro, Next.js, Nuxt, SvelteKit, Gatsby, Angular, Docusaurus, Remix, React Router, Qwik, Analog, Hugo, and Vite). Vite is treated as auxiliary when a more specific framework is present.
 3. Prefer a package script whose command contains the framework build command, then `build`, then `build:*`.
 4. Run the build through the detected package manager, or invoke the framework command with `npx`/`pnpm exec`/`yarn`/`bunx` when there is no script.
 5. Normalize the framework output directory (`dist`, `build`, `out`, `public`, `.output/public`, and similar) to `dist/`.
@@ -65,6 +76,8 @@ When no framework or build script is found, the CLI prepares output according to
 - wrangler project: bundle `main` to `dist/server/index.js` with Rolldown.
 
 The deployment stops during preflight if `dist/index.html` (static) or `dist/server/index.js` (Worker) is missing.
+
+Use `--prebuilt` to skip detection-driven builds entirely and deploy the current `dist/` directory, matching `cf deploy --prebuilt`.
 
 ## Archive
 

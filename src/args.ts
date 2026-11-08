@@ -16,6 +16,7 @@ interface FlagDefinition {
 const ALIASES: Record<string, string> = {
   "-q": "quiet",
   "-y": "yes",
+  "-f": "force",
   "-h": "help",
   "-v": "version",
   "-z": "zone",
@@ -47,7 +48,7 @@ export const FLAG_DEFS: Record<string, FlagDefinition> = {
   mcp: { type: "boolean", description: "Include MCP connection details" },
 
   template: { type: "string", description: "Project template: static or worker-esm" },
-  force: { type: "boolean", description: "Write into a non-empty directory" },
+  force: { type: "boolean", description: "Skip confirmation or overwrite existing files" },
   "no-git": { type: "boolean", description: "Do not initialize a Git repository" },
   title: { type: "string", description: "Site title" },
   private: { type: "boolean", description: "Use custom access" },
@@ -55,7 +56,12 @@ export const FLAG_DEFS: Record<string, FlagDefinition> = {
   workspace: { type: "boolean", description: "Allow workspace members" },
   description: { type: "string", description: "Site description" },
   "dry-run": { type: "boolean", description: "Validate without changing remote state" },
-  "no-build-script": { type: "boolean", description: "Skip the package.json build script" },
+  prebuilt: { type: "boolean", description: "Deploy existing build output without building" },
+  "no-build-script": { type: "boolean", description: "Skip the project build step" },
+  "secrets-file": {
+    type: "string",
+    description: "Apply secret environment variables from a JSON or dotenv file",
+  },
   message: { type: "string", description: "Source commit message" },
   tag: { type: "string", description: "Name this version in local state" },
   "env-file": { type: "string", description: "Apply environment variables from a file" },
@@ -351,14 +357,38 @@ function decorateHelp(help: string, env?: Env): string {
   return detectAgentContext(env).isAgentic ? `${AGENT_DISCOVERY_HELP}\n${help}` : help;
 }
 
+const VALUE_PLACEHOLDERS: Record<string, string> = {
+  profile: "name",
+  limit: "number",
+  cursor: "cursor",
+  role: "role",
+  template: "name",
+  title: "title",
+  description: "text",
+  message: "message",
+  tag: "tag",
+  "env-file": "path",
+  "secrets-file": "path",
+  "allow-unsupported": "kinds",
+  timeout: "seconds",
+  interval: "seconds",
+  since: "window",
+  out: "path",
+  "allow-email": "email",
+  view: "view",
+  path: "path",
+};
+
 function quoteFlag(name: string, def: FlagDefinition | undefined): string {
   const aliases: Record<string, string> = {
     quiet: "-q, ",
     yes: "-y, ",
+    force: "-f, ",
     help: "-h, ",
     version: "-v, ",
   };
-  return `${aliases[name] ?? ""}--${name}${def?.type === "string" ? " <value>" : ""}`;
+  const placeholder = def?.type === "string" ? ` <${VALUE_PLACEHOLDERS[name] ?? "value"}>` : "";
+  return `${aliases[name] ?? ""}--${name}${placeholder}`;
 }
 
 export function commandHelp(command: CommandDefinition, env?: Env): string {
@@ -367,10 +397,13 @@ export function commandHelp(command: CommandDefinition, env?: Env): string {
   const flags = command.flags ?? [];
   if (flags.length) {
     lines.push("", "Options:");
-    for (const flag of flags) {
+    const rows = flags.map((flag) => {
       const def = FLAG_DEFS[flag];
-      const description = def?.description ? `  ${def.description}` : "";
-      lines.push(`  ${quoteFlag(flag, def)}${description}`);
+      return { label: quoteFlag(flag, def), description: def?.description ?? "" };
+    });
+    const width = Math.max(...rows.map((row) => row.label.length)) + 2;
+    for (const row of rows) {
+      lines.push(`  ${row.label.padEnd(width)}${row.description}`);
     }
   }
   lines.push(

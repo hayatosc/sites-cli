@@ -168,6 +168,34 @@ test("domains add prints DNS instructions", async () => {
   }
 });
 
+test("domains remove requires --force in non-interactive mode", async () => {
+  const root = project();
+  const mock = await createMockMcp((call) => {
+    if (call.name === "sites.list_custom_domains")
+      return structured({ items: [{ id: "dom_1", hostname: "www.example.com" }] });
+    if (call.name === "sites.remove_custom_domain")
+      return structured({ id: "dom_1", hostname: "www.example.com" });
+    return undefined;
+  });
+  try {
+    const refused = await runCli(["domains", "remove", "www.example.com"], {
+      cwd: root,
+      env: { SITES_MCP_URL: mock.url },
+    });
+    assert.equal(refused.code, 2);
+    assert.match(refused.stderr, /--force/);
+
+    const removed = await runCli(["domains", "remove", "www.example.com", "--force", "--human"], {
+      cwd: root,
+      env: { SITES_MCP_URL: mock.url },
+    });
+    assert.equal(removed.code, 0, removed.stderr);
+    assert.match(removed.stdout, /Removed www\.example\.com/);
+  } finally {
+    await mock.close();
+  }
+});
+
 test("analytics summary aligns the window to UTC-08:00 hours", async () => {
   const root = project();
   const mock = await createMockMcp((call) => {
@@ -213,7 +241,7 @@ test("open --print writes only the URL", async () => {
   }
 });
 
-test("delete requires --yes and clears project_id", async () => {
+test("delete requires --force and clears project_id", async () => {
   const root = project();
   const mock = await createMockMcp((call) => {
     if (call.name === "sites.get_site") return structured({ id: "appgprj_1", slug: "demo" });
@@ -224,8 +252,9 @@ test("delete requires --yes and clears project_id", async () => {
   try {
     const refused = await runCli(["delete"], { cwd: root, env: { SITES_MCP_URL: mock.url } });
     assert.equal(refused.code, 2);
+    assert.match(refused.stderr, /--force/);
 
-    const deleted = await runCli(["delete", "--yes"], {
+    const deleted = await runCli(["delete", "--force"], {
       cwd: root,
       env: { SITES_MCP_URL: mock.url },
     });

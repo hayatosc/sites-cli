@@ -64,6 +64,8 @@ export interface CommandContext {
   /** Resolves (and caches) Codex credentials. */
   getIdentity: () => Identity;
   log: (text: string) => void;
+  /** Writes a cf-style success line even when --quiet is set. */
+  success: (text: string) => void;
   /** Lazily creates the MCP client. */
   mcp: () => McpClient;
 }

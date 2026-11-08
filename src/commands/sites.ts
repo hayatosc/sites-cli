@@ -97,7 +97,7 @@ export function registerSiteCommands(define: DefineCommand): void {
         data: { items, cursor: lastCursor },
         human: (value) => {
           if (!value.items.length) {
-            ctx.stdout.write("サイトがありません。\n");
+            ctx.stdout.write("No sites.\n");
             return;
           }
           renderTable(
@@ -163,15 +163,15 @@ export function registerSiteCommands(define: DefineCommand): void {
         data,
         human: (value) => {
           const lines = [
-            `サイト: ${value.title ?? value.slug} (${value.slug})`,
+            `Site: ${value.title ?? value.slug} (${value.slug})`,
             `ID: ${value.project_id}`,
-            `URL: ${value.url ?? "未デプロイ"}`,
-            `公開範囲: ${value.access_mode ?? "不明"}`,
-            `最新バージョン: ${value.latest_version_number ?? "-"}`,
+            `URL: ${value.url ?? "not deployed"}`,
+            `Access: ${value.access_mode ?? "unknown"}`,
+            `Latest version: ${value.latest_version_number ?? "-"}`,
           ];
           if (value.custom_domains.length) {
             lines.push(
-              `カスタムドメイン: ${value.custom_domains.map((d) => `${d.hostname ?? ""} (${d.status ?? ""})`).join(", ")}`,
+              `Custom domains: ${value.custom_domains.map((d) => `${d.hostname ?? ""} (${d.status ?? ""})`).join(", ")}`,
             );
           }
           ctx.stdout.write(lines.join("\n") + "\n");

@@ -6,6 +6,7 @@ import { resolveProjectRef } from "../manifest.ts";
 import { CliError, EXIT, usageError } from "../errors.ts";
 import { integerOption } from "../args.ts";
 import { sleep, textValue } from "../util.ts";
+import { confirmDestructive } from "../prompt.ts";
 
 const HOSTNAME_PATTERN = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
@@ -141,12 +142,13 @@ export function registerDomainCommands(define: DefineCommand): void {
         }
       }
       const data = domainData(projectId, domain);
+      ctx.success(`Added custom domain ${hostname}`);
       return {
         data,
         human: (value) => {
           renderDomainInstructions(ctx, value);
           ctx.stdout.write(
-            "DNS レコードを作成したら `sites domains refresh <hostname>` で確認できます。\n",
+            "Create the DNS records, then run `sites domains refresh <hostname>` to verify.\n",
           );
         },
       };
@@ -171,7 +173,7 @@ export function registerDomainCommands(define: DefineCommand): void {
         data: { project_id: projectId, items },
         human: (value) => {
           if (!value.items.length) {
-            ctx.stdout.write("カスタムドメインはありません。\n");
+            ctx.stdout.write("No custom domains.\n");
             return;
           }
           for (const item of value.items) {
@@ -199,6 +201,7 @@ export function registerDomainCommands(define: DefineCommand): void {
           project_id: projectId,
           custom_domain_id: domain.id,
         });
+      ctx.success(`Refreshed custom domain ${domain.hostname ?? domain.id ?? "domain"}`);
       return {
         data: domainData(projectId, refreshed),
         human: (value) => renderDomainInstructions(ctx, value),
@@ -208,10 +211,10 @@ export function registerDomainCommands(define: DefineCommand): void {
 
   define({
     path: ["domains", "remove"],
-    flags: [],
+    flags: ["force"],
     positionals: { min: 1, max: 1, names: ["hostname|custom_domain_id"] },
     summary: "Remove a custom domain",
-    usage: "sites domains remove <hostname|custom_domain_id>",
+    usage: "sites domains remove <hostname|custom_domain_id> [--force]",
     run: async (
       ctx,
     ): Promise<
@@ -219,10 +222,15 @@ export function registerDomainCommands(define: DefineCommand): void {
     > => {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const domain = await resolveDomain(ctx, projectId, ctx.positionals[0]);
+      const label = domain.hostname ?? domain.id ?? String(ctx.positionals[0]);
+      if (!(await confirmDestructive(ctx, `custom domain ${label}`, Boolean(ctx.options.force)))) {
+        throw new CliError("CANCELLED", "Removal cancelled.", { exitCode: EXIT.INTERRUPT });
+      }
       const removed = await ctx.mcp().callTool<CustomDomainRecord>("sites.remove_custom_domain", {
         project_id: projectId,
         custom_domain_id: domain.id,
       });
+      ctx.success(`Removed custom domain ${label}`);
       return {
         data: {
           project_id: projectId,
@@ -230,7 +238,7 @@ export function registerDomainCommands(define: DefineCommand): void {
           domain: removed as Record<string, unknown>,
         },
         human: (value) => {
-          ctx.stdout.write(`${value.removed} を削除しました。\n`);
+          ctx.stdout.write(`Removed ${value.removed}.\n`);
         },
       };
     },

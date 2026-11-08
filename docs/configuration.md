@@ -61,13 +61,14 @@ Set `r2` to a binding name to expose an R2 bucket to the Worker. Multiple R2 bin
 
 ## Environment variables
 
-`deploy --env-file` reads a file of `KEY=VALUE` entries and stores them as Sites environment variables. Changes take effect on the next deployment.
+`deploy --env-file` reads a file of `KEY=VALUE` entries and stores them as non-secret Sites environment variables. `deploy --secrets-file` accepts dotenv or JSON and stores entries as secrets. Changes take effect on the next deployment.
 
 ```sh
 npx @hayatosc/sites deploy --env-file .env.production
+npx @hayatosc/sites deploy --secrets-file .env.secrets
 ```
 
-Set secrets with `sites env set KEY VALUE --secret`. Secret values cannot be read back from the API.
+Secret files expand `$VAR` and `${VAR}` from the process environment and earlier entries. Process environment values override file values, even when empty. Set individual secrets with `sites env set KEY=VALUE --secret`; secret values cannot be read back from the API.
 
 ## Converting from wrangler
 

@@ -283,6 +283,11 @@ test("deploy --dry-run builds without credentials", async () => {
 
 test("deploy uploads, saves, polls, and records state", async () => {
   const { root, remote } = makeProject();
+  fs.writeFileSync(path.join(root, "vars.env"), "PLAIN_VALUE=plain\n");
+  fs.writeFileSync(
+    path.join(root, "secrets.env"),
+    "SECRET_TOKEN=abc123\nEXPANDED_SECRET=${SECRET_TOKEN}-suffix\n",
+  );
   const upload = await createUploadServer();
   let statusIndex = 0;
   const mock = await createMockMcp((call) => {
@@ -316,14 +321,28 @@ test("deploy uploads, saves, polls, and records state", async () => {
     return undefined;
   });
   try {
-    const result = await runCli(["deploy", "--human", "--tag", "v1", "--timeout", "10"], {
-      cwd: root,
-      env: {
-        SITES_MCP_URL: mock.url,
-        SITES_API_BASE: upload.base,
-        SITES_ALLOW_INSECURE_GIT: "1",
+    const result = await runCli(
+      [
+        "deploy",
+        "--human",
+        "--tag",
+        "v1",
+        "--timeout",
+        "10",
+        "--env-file",
+        "vars.env",
+        "--secrets-file",
+        "secrets.env",
+      ],
+      {
+        cwd: root,
+        env: {
+          SITES_MCP_URL: mock.url,
+          SITES_API_BASE: upload.base,
+          SITES_ALLOW_INSECURE_GIT: "1",
+        },
       },
-    });
+    );
     assert.equal(result.code, 0, result.stderr);
     assert.match(result.stdout, /Deployed appgprj_1/);
     const save = mock.calls.find((call) => call.name === "sites.save_site_version") as MockCall;
@@ -335,6 +354,19 @@ test("deploy uploads, saves, polls, and records state", async () => {
     assert.equal(deployCall?.args?.version_id, "appgprj_1~appgver_1");
     assert.ok(upload.calls.includes("POST /backend-api/files"));
     assert.ok(upload.calls.includes("PUT /blob/file_1"));
+    const environmentCall = mock.calls.find(
+      (call) => call.name === "sites.update_environment_variables",
+    ) as MockCall;
+    const setValues = environmentCall.args?.set_values as Array<Record<string, unknown>>;
+    assert.deepEqual(
+      setValues.map((entry) => [entry.key, entry.value, entry.is_secret]),
+      [
+        ["PLAIN_VALUE", "plain", false],
+        ["SECRET_TOKEN", "abc123", true],
+        ["EXPANDED_SECRET", "abc123-suffix", true],
+      ],
+    );
+    assert.ok(!result.stderr.includes("abc123"));
     const state = JSON.parse(fs.readFileSync(path.join(root, ".sites/state.json"), "utf8"));
     assert.equal(state.last_deployment_id, "dep_1");
     assert.equal(state.tags.v1, "appgprj_1~appgver_1");
@@ -381,4 +413,36 @@ test("deploy without source sync uses the current commit", async () => {
     await mock.close();
     await upload.close();
   }
+});
+
+test("deploy --prebuilt uses existing output without running the build", async () => {
+  const { root } = makeProject();
+  fs.mkdirSync(path.join(root, "dist"), { recursive: true });
+  fs.writeFileSync(path.join(root, "dist/index.html"), "<h1>prebuilt</h1>");
+  fs.writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      private: true,
+      scripts: { build: "node -e \"require('fs').writeFileSync('built.txt','yes')\"" },
+    }),
+  );
+  fs.writeFileSync(path.join(root, "secrets.env"), "TOKEN=from-file\nDERIVED=${TOKEN}-suffix\n");
+
+  const result = await runCli(
+    ["deploy", "--dry-run", "--prebuilt", "--secrets-file", "secrets.env", "--human"],
+    { cwd: root },
+  );
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Dry run OK/);
+  assert.equal(fs.readFileSync(path.join(root, "dist/index.html"), "utf8"), "<h1>prebuilt</h1>");
+  assert.ok(!fs.existsSync(path.join(root, "built.txt")));
+
+  const json = await runCli(
+    ["deploy", "--dry-run", "--prebuilt", "--secrets-file", "secrets.env"],
+    { cwd: root },
+  );
+  assert.equal(json.code, 0, json.stderr);
+  const body = JSON.parse(json.stdout);
+  assert.deepEqual(body.data.environment.keys, ["TOKEN", "DERIVED"]);
+  assert.deepEqual(body.data.environment.secret_keys, ["TOKEN", "DERIVED"]);
 });

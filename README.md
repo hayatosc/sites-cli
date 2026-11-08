@@ -37,7 +37,7 @@ npx @hayatosc/sites open
 | `sites create <slug>`                            | Create a site and save `project_id`            |
 | `sites list`                                     | List sites                                     |
 | `sites info [project\|slug]`                     | Show site details                              |
-| `sites deploy`                                   | Build and deploy                               |
+| `sites deploy`                                   | Build and deploy (`--prebuilt` to skip build)  |
 | `sites status [deployment_id]`                   | Show deployment status (`--watch` to wait)     |
 | `sites logs`                                     | Fetch Worker logs (`--follow` to stream)       |
 | `sites versions list\|show\|rollback`            | List, inspect, and roll back versions          |
@@ -46,7 +46,7 @@ npx @hayatosc/sites open
 | `sites domains add\|list\|refresh\|remove`       | Manage custom domains                          |
 | `sites analytics summary\|events`                | Read analytics                                 |
 | `sites open`                                     | Open in a browser (`--print` for the URL only) |
-| `sites delete --yes`                             | Delete a site                                  |
+| `sites delete --force`                           | Delete a site                                  |
 | `sites doctor`                                   | Diagnose the local environment and connection  |
 | `sites cli search <query>`                       | Rank up to five commands by intent             |
 | `sites docs search <query>`                      | Search the bundled manual                      |

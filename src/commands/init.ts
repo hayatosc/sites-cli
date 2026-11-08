@@ -145,7 +145,7 @@ export function registerInitCommands(define: DefineCommand): void {
         }
       }
 
-      ctx.log(`Initialized ${template} site in ${target}`);
+      ctx.success(`Initialized ${template} site in ${target}`);
       return {
         data: { directory: target, template, git_initialized: gitInitialized, files },
         human: (value) => {

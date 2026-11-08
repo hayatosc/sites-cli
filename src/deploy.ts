@@ -22,6 +22,7 @@ import type {
 } from "./api-types.ts";
 import type { CommandContext } from "./types.ts";
 import { stringOption } from "./util.ts";
+import { readEnvFile, readSecretsFile } from "./env-file.ts";
 import type { ProjectDetection } from "./project-detect.ts";
 
 export interface DeployData {
@@ -39,6 +40,7 @@ export interface DeployData {
   dry_run?: boolean;
   conversion?: ConversionReport;
   detection?: Record<string, unknown>;
+  environment?: { keys: string[]; secret_keys: string[] };
 }
 
 function detectionReport(detection: ProjectDetection, siteKind: SiteKind): Record<string, unknown> {
@@ -80,7 +82,7 @@ function accessModeFromFlags(ctx: CommandContext): "custom" | "public" | "worksp
 }
 
 async function confirmPublic(ctx: CommandContext): Promise<void> {
-  if (ctx.yes) return;
+  if (ctx.yes || ctx.options.force) return;
   if (!process.stdin.isTTY) {
     throw new CliError("CONFIRM_REQUIRED", "Publishing a site requires confirmation.", {
       exitCode: EXIT.USAGE,
@@ -108,38 +110,6 @@ function conversionVariables(root: string): Array<{ key: string; value: string }
   } catch {
     return [];
   }
-}
-
-function readEnvFile(root: string, file: string): Array<{ key: string; value: string }> {
-  const absolute = path.isAbsolute(file) ? file : path.join(root, file);
-  let raw: string;
-  try {
-    raw = fs.readFileSync(absolute, "utf8");
-  } catch {
-    throw new CliError("PREFLIGHT_ENV_FILE", `Cannot read env file: ${file}`, {
-      exitCode: EXIT.PREFLIGHT,
-    });
-  }
-  const entries: Array<{ key: string; value: string }> = [];
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const equal = trimmed.indexOf("=");
-    if (equal <= 0) {
-      throw new CliError("PREFLIGHT_ENV_FILE", `Invalid env file line: ${trimmed}`, {
-        exitCode: EXIT.PREFLIGHT,
-        hint: "Use KEY=VALUE lines.",
-      });
-    }
-    const key = trimmed.slice(0, equal).trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-      throw new CliError("PREFLIGHT_ENV_FILE", `Invalid environment variable name: ${key}`, {
-        exitCode: EXIT.PREFLIGHT,
-      });
-    }
-    entries.push({ key, value: trimmed.slice(equal + 1) });
-  }
-  return entries;
 }
 
 function credentialOf(
@@ -175,7 +145,7 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   const requestedAccess = accessModeFromFlags(ctx);
   const message = stringOption(ctx.options, "message") ?? "Update Site source";
 
-  ctx.log("[1/7] Preflight");
+  ctx.log("Preflight");
   const dirty = await dirtyFiles(ctx.root);
   if (dirty.length && !allowDirty) {
     throw new CliError("CONFLICT_DIRTY_TREE", "The working tree has uncommitted changes.", {
@@ -202,18 +172,43 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
     });
   }
   const projectId = manifest.project_id;
-  ctx.log("[2/7] Build");
+  ctx.log("Build");
   const build = await buildSite({
     root: ctx.root,
     env: ctx.env,
+    prebuilt: Boolean(ctx.options.prebuilt),
     noBuildScript: Boolean(ctx.options["no-build-script"]),
     log: ctx.log,
   });
   const dist = inspectDist(ctx.root, manifest);
+  ctx.success(build.mode === "prebuilt" ? "Build output ready" : "Build complete");
+
+  const mergedValues = new Map<string, { key: string; value: string; is_secret: boolean }>();
+  for (const entry of conversionVariables(ctx.root)) {
+    mergedValues.set(entry.key, { ...entry, is_secret: false });
+  }
+  const envFile = stringOption(ctx.options, "env-file");
+  if (envFile) {
+    for (const entry of readEnvFile(ctx.root, envFile)) {
+      mergedValues.set(entry.key, { ...entry, is_secret: false });
+    }
+  }
+  const secretsFile = stringOption(ctx.options, "secrets-file");
+  if (secretsFile) {
+    for (const entry of readSecretsFile(ctx.root, secretsFile, ctx.env)) {
+      mergedValues.set(entry.key, { ...entry, is_secret: true });
+    }
+  }
+  const values = [...mergedValues.values()];
+  const environment = {
+    keys: values.map((entry) => entry.key),
+    secret_keys: values.filter((entry) => entry.is_secret).map((entry) => entry.key),
+  };
 
   if (dryRun) {
-    ctx.log(`[3/7] Dry run (${dist.kind}: ${dist.entry}, ${dist.fileCount} files)`);
+    ctx.log(`Dry run (${dist.kind}: ${dist.entry}, ${dist.fileCount} files)`);
     ctx.log(`build: ${build.mode}${build.command ? ` (${build.command})` : ""}`);
+    ctx.success("Dry run complete");
     return {
       project_id: projectId,
       version_id: null,
@@ -227,6 +222,7 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
       archive: { size_bytes: dist.sizeBytes, file_count: dist.fileCount },
       dry_run: true,
       detection: detectionReport(build.detection, dist.kind),
+      environment,
       ...(conversion ? { conversion } : {}),
     };
   }
@@ -245,7 +241,7 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
     await confirmPublic(ctx);
   }
 
-  ctx.log("[3/7] Source sync");
+  ctx.log("Source sync");
   let commitSha: string | null = null;
   let pushed = false;
   if (ctx.options["no-source-sync"]) {
@@ -296,11 +292,11 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
     );
   }
 
-  ctx.log("[4/7] Package");
+  ctx.log("Package");
   const archive = await createArchive(ctx.root);
   ctx.log(`${archive.fileCount} files, ${archive.sizeBytes} bytes`);
 
-  ctx.log("[5/7] Upload");
+  ctx.log("Upload");
   const uploaded = await uploadArchive({
     archiveFile: archive.archiveFile,
     projectId,
@@ -310,7 +306,7 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   });
   fs.rmSync(path.dirname(archive.archiveFile), { recursive: true, force: true });
 
-  ctx.log("[6/7] Save version");
+  ctx.log("Save version");
   const version = await client.callTool<SiteVersionRecord>("sites.save_site_version", {
     project_id: projectId,
     commit_sha: commitSha,
@@ -320,24 +316,20 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
     throw new CliError("INTERNAL_ERROR", "save_site_version returned no version id.");
   }
 
-  const mergedValues = new Map<string, { key: string; value: string }>();
-  for (const entry of conversionVariables(ctx.root)) mergedValues.set(entry.key, entry);
-  const envFile = stringOption(ctx.options, "env-file");
-  if (envFile) {
-    for (const entry of readEnvFile(ctx.root, envFile)) {
-      mergedValues.set(entry.key, entry);
-    }
-  }
-  const values = [...mergedValues.values()];
   if (values.length) {
     await client.callTool("sites.update_environment_variables", {
       project_id: projectId,
-      set_values: values.map((entry) => ({ ...entry, is_secret: false, type: "envvar" })),
+      set_values: values.map((entry) => ({
+        key: entry.key,
+        value: entry.value,
+        is_secret: entry.is_secret,
+        type: "envvar",
+      })),
       remove: [],
     });
   }
 
-  ctx.log("[7/7] Deploy");
+  ctx.log("Deploy");
   const tool =
     currentAccess === "custom" ? "sites.deploy_private_site_version" : "sites.deploy_site_version";
   const deployment = await client.callTool<DeploymentRecord>(tool, {
@@ -376,6 +368,7 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   const tag = stringOption(ctx.options, "tag");
   if (tag) nextState.tags = { ...state.tags, [tag]: version.id };
   writeState(ctx.root, nextState);
+  ctx.success("Deploy complete");
 
   return {
     project_id: projectId,
@@ -390,6 +383,7 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
     commit_pushed: pushed,
     archive: { size_bytes: archiveSizeOf(archive), file_count: archive.fileCount },
     detection: detectionReport(build.detection, dist.kind),
+    environment,
   };
 }
 

@@ -82,6 +82,8 @@ export function registerDeployCommands(define: DefineCommand): void {
     path: ["deploy"],
     flags: [
       "dry-run",
+      "prebuilt",
+      "force",
       "no-build-script",
       "message",
       "tag",
@@ -89,6 +91,7 @@ export function registerDeployCommands(define: DefineCommand): void {
       "public",
       "workspace",
       "env-file",
+      "secrets-file",
       "no-source-sync",
       "allow-dirty",
       "allow-unsupported",
@@ -97,7 +100,7 @@ export function registerDeployCommands(define: DefineCommand): void {
     positionals: { min: 0, max: 0 },
     summary: "Build, upload, and deploy the current site",
     usage:
-      "sites deploy [--dry-run] [--message <text>] [--private|--public|--workspace] [--timeout 300]",
+      "sites deploy [--dry-run] [--prebuilt] [--message <text>] [--private|--public|--workspace] [--force] [--timeout 300]",
     run: async (ctx): Promise<CommandResult<Awaited<ReturnType<typeof runDeploy>>>> => {
       const data = await runDeploy(ctx);
       return {
