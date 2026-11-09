@@ -1,6 +1,7 @@
 // CLI core integration tests: foundation, auth, MCP, list/info.
 
-import { test } from "vite-plus/test";
+import { test, vi } from "vite-plus/test";
+import * as gunshiAgent from "gunshi/agent";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -16,6 +17,10 @@ import {
 import { parseSse, McpClient } from "../src/mcp.ts";
 import { decodeJwtExpiry } from "../src/auth.ts";
 import { readManifest, writeManifest, writeState, readState } from "../src/manifest.ts";
+
+vi.mock("gunshi/agent", () => ({
+  getAgentProfile: vi.fn(() => ({ isAgent: false })),
+}));
 
 test("parseSse joins multi-line data and ignores comments", () => {
   const events = parseSse(
@@ -87,11 +92,30 @@ test("usage errors use human stderr and exit 1", async () => {
   assert.match(typo.stderr, /Did you mean `sites deploy`/);
 });
 
-test("agent help includes command discovery", async () => {
-  const result = await runCli(["--help"], { env: { PI_CODING_AGENT: "true" } });
-  assert.equal(result.code, 0);
-  assert.match(result.stdout, /STOP: AGENT COMMAND DISCOVERY/);
-  assert.match(result.stdout, /sites cli search/);
+test("help includes command discovery only when Gunshi detects an agent", async () => {
+  const profile = vi.mocked(gunshiAgent.getAgentProfile);
+  try {
+    for (const isAgent of [true, false]) {
+      profile.mockReturnValue({ isAgent });
+      const version = await runCli(["--version"]);
+      assert.equal(version.code, 0, version.stderr);
+      assert.equal(version.stdout.trim(), "0.1.0");
+      for (const argv of [["--help"], ["list", "--help"], ["auth", "--help"]]) {
+        const result = await runCli(argv);
+        assert.equal(result.code, 0, result.stderr);
+        assert.match(result.stdout, /USAGE:/);
+        if (isAgent) {
+          assert.match(result.stdout, /^=== STOP: AGENT COMMAND DISCOVERY ===/);
+          assert.match(result.stdout, /sites cli search/);
+          assert.match(result.stdout, /sites docs search/);
+        } else {
+          assert.doesNotMatch(result.stdout, /AGENT COMMAND DISCOVERY/);
+        }
+      }
+    }
+  } finally {
+    profile.mockReset();
+  }
 });
 
 test("--quiet=false keeps progress output enabled", async () => {

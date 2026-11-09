@@ -1,10 +1,10 @@
 // Gunshi schemas and compatibility normalization. Parsing and dispatch belong to Gunshi.
 
 import { parseArgs, resolveArgs, type ArgSchema, type Args } from "gunshi";
-import { detectAgentContext } from "./agent-context.ts";
+import { getAgentProfile } from "gunshi/agent";
 import { usageError } from "./errors.ts";
 import { textValue } from "./util.ts";
-import type { CommandDefinition, Env } from "./types.ts";
+import type { CommandDefinition } from "./types.ts";
 
 interface FlagDefinition {
   type: "boolean" | "string";
@@ -232,8 +232,8 @@ export function commandCompletions(words: string[], commands: CommandDefinition[
   return [...new Set(choices)].filter((choice) => choice.startsWith(prefix)).sort();
 }
 
-export function decorateHelp(help: string, env: Env): string {
-  if (!detectAgentContext(env).isAgentic) return help;
+export function decorateHelp(help: string): string {
+  if (!getAgentProfile().isAgent) return help;
   return `=== STOP: AGENT COMMAND DISCOVERY ===\nAGENTS: Do not explore commands by chaining nested --help calls.\nKeep queries anonymous: never include names, email addresses, domains, account/resource IDs or tokens.\nYour first port of call is sites cli search "<describe the task>".\nUse sites docs search "<question>" for the bundled manual.\nRun the discovered command with --help; use sites schema <tool> for MCP schemas.\n=== END AGENT COMMAND DISCOVERY ===\n${help}`;
 }
 

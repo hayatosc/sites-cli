@@ -138,7 +138,8 @@ export async function main(
         renderValidationErrors: null,
       },
     );
-    if (typeof rendered === "string") stdout.write(decorateHelp(rendered, env) + "\n");
+    if (typeof rendered === "string")
+      stdout.write((input.includes("--version") ? rendered : decorateHelp(rendered)) + "\n");
     return exitCode;
   } catch (error) {
     if (error instanceof CommandExit) return EXIT.INTERRUPT;
