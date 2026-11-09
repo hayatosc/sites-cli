@@ -2,7 +2,6 @@
 
 import { CliError } from "./errors.ts";
 import type { Env, OutputStream } from "./types.ts";
-import { stringifyJson } from "./util.ts";
 
 export function colorEnabled(
   stream: OutputStream,
@@ -18,27 +17,11 @@ function paint(text: string, code: string, enabled: boolean): string {
 }
 
 export interface ErrorRenderOptions {
-  json: boolean;
   stderr: OutputStream;
   color?: boolean;
 }
 
-export function printError(
-  error: CliError,
-  { json, stderr, color = false }: ErrorRenderOptions,
-): void {
-  const details: Record<string, unknown> = {
-    code: error.code,
-    message: error.message,
-  };
-  if (error.hint) details.hint = error.hint;
-  if (error.docs) details.docs = error.docs;
-  if (error.details !== undefined) details.details = error.details;
-
-  if (json) {
-    stderr.write(stringifyJson({ ok: false, error: details }) + "\n");
-    return;
-  }
+export function printError(error: CliError, { stderr, color = false }: ErrorRenderOptions): void {
   stderr.write(paint("Error: ", "31;1", color) + error.message + "\n");
   if (error.hint) stderr.write(`  hint: ${error.hint}\n`);
   if (error.docs) stderr.write(`  docs: ${error.docs}\n`);

@@ -48,35 +48,35 @@ test("--version and help", async () => {
 
   const help = await runCli(["--help"]);
   assert.equal(help.code, 0);
-  assert.match(help.stdout, /auth whoami/);
+  assert.match(help.stdout, /^  auth\s/m);
   assert.match(help.stdout, /^  list\s/m);
 
   const commandHelp = await runCli(["list", "--help"]);
   assert.equal(commandHelp.code, 0);
-  assert.match(commandHelp.stdout, /Usage: sites list/);
+  assert.match(commandHelp.stdout, /USAGE:\s+sites list/);
 
   const groupHelp = await runCli(["auth", "--help"]);
   assert.equal(groupHelp.code, 0);
-  assert.match(groupHelp.stdout, /Usage: sites auth <command>/);
+  assert.match(groupHelp.stdout, /sites auth --help/);
   assert.match(groupHelp.stdout, /whoami/);
 });
 
-test("structured usage errors retain detailed exit codes with --json", async () => {
+test("usage errors use human stderr and exit 1", async () => {
   const noCommand = await runCli([]);
   assert.equal(noCommand.code, 0);
-  assert.match(noCommand.stdout, /Usage: sites/);
+  assert.match(noCommand.stdout, /USAGE:\s+sites/);
 
   const unknown = await runCli(["bould"]);
-  assert.equal(unknown.code, 2);
-  assert.equal(JSON.parse(unknown.stderr).error.code, "USAGE_UNKNOWN_COMMAND");
+  assert.equal(unknown.code, 1);
+  assert.match(unknown.stderr, /^Error: Command not found/);
 
   const unsupported = await runCli(["list", "-z"]);
-  assert.equal(unsupported.code, 2);
-  assert.equal(JSON.parse(unsupported.stderr).error.code, "USAGE_UNSUPPORTED_FLAG");
+  assert.equal(unsupported.code, 1);
+  assert.match(unsupported.stderr, /^Error: /);
 
   const extraArg = await runCli(["info", "a", "b"]);
-  assert.equal(extraArg.code, 2);
-  assert.equal(JSON.parse(extraArg.stderr).error.code, "USAGE_UNEXPECTED_ARGUMENT");
+  assert.equal(extraArg.code, 1);
+  assert.match(extraArg.stderr, /^Error: Expected 0 to 1 arguments/);
 
   const human = await runCli(["bogus", "--human"]);
   assert.equal(human.code, 1);
@@ -105,12 +105,13 @@ test("auth whoami uses SITES_ACCESS_TOKEN", async () => {
   });
   assert.equal(result.code, 0);
   const body = JSON.parse(result.stdout);
-  assert.equal(body.ok, true);
-  assert.equal(body.data.authenticated, true);
-  assert.equal(body.data.authSource, "SITES_ACCESS_TOKEN");
-  assert.equal(body.data.tokenValid, true);
-  assert.equal(body.data.refreshTokenPresent, false);
-  assert.equal(typeof body.meta.duration_ms, "number");
+  assert.equal(body.authenticated, true);
+  assert.equal(body.authSource, "SITES_ACCESS_TOKEN");
+  assert.equal(body.tokenValid, true);
+  assert.equal(body.refreshTokenPresent, false);
+  assert.equal(Object.hasOwn(body, "ok"), false);
+  assert.equal(Object.hasOwn(body, "data"), false);
+  assert.equal(Object.hasOwn(body, "meta"), false);
 });
 
 test("auth whoami reports unauthenticated as a successful result", async () => {
@@ -119,8 +120,8 @@ test("auth whoami reports unauthenticated as a successful result", async () => {
   });
   assert.equal(result.code, 0);
   const body = JSON.parse(result.stdout);
-  assert.equal(body.data.authenticated, false);
-  assert.equal(body.data.error, "Not logged in");
+  assert.equal(body.authenticated, false);
+  assert.equal(body.error, "Not logged in");
 });
 
 test("auth whoami --check initializes over SSE", async () => {
@@ -155,9 +156,9 @@ test("auth whoami reads the Codex file and reports the source", async () => {
   });
   assert.equal(result.code, 0);
   const body = JSON.parse(result.stdout);
-  assert.equal(body.data.accountId, "acct_1");
-  assert.equal(body.data.authenticated, true);
-  assert.match(body.data.authSource, /auth\.json\)$/);
+  assert.equal(body.accountId, "acct_1");
+  assert.equal(body.authenticated, true);
+  assert.match(body.authSource, /auth\.json\)$/);
 });
 
 test("expired token refreshes, rotates, and writes back atomically", async () => {
@@ -241,22 +242,22 @@ test("401 triggers one forced refresh and retries", async () => {
     assert.equal(result.code, 0, result.stderr);
     assert.equal(toolCalls, 2);
     assert.equal(auth.requests.length, 1);
-    assert.equal(JSON.parse(result.stdout).data.items.length, 0);
+    assert.equal(JSON.parse(result.stdout).items.length, 0);
   } finally {
     await mcp.close();
     await auth.close();
   }
 });
 
-test("expired token from SITES_ACCESS_TOKEN exits 3 without refresh", async () => {
+test("expired token from SITES_ACCESS_TOKEN exits 1 without refresh", async () => {
   const expired = fakeJwt(Date.now() - 3600_000);
   const mcp = await createMockMcp();
   try {
     const result = await runCli(["list"], {
       env: { SITES_ACCESS_TOKEN: expired, SITES_MCP_URL: mcp.url },
     });
-    assert.equal(result.code, 3);
-    assert.equal(JSON.parse(result.stderr).error.code, "AUTH_EXPIRED");
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /expired/i);
   } finally {
     await mcp.close();
   }
@@ -285,7 +286,7 @@ test("list prints items and follows cursor with --all", async () => {
     assert.equal(result.code, 0, result.stderr);
     const body = JSON.parse(result.stdout);
     assert.deepEqual(
-      body.data.items.map((item: { slug: string }) => item.slug),
+      body.items.map((item: { slug: string }) => item.slug),
       ["one", "two"],
     );
     assert.equal(mcp.calls.length, 2);
@@ -298,12 +299,12 @@ test("list prints items and follows cursor with --all", async () => {
 
 test("list validates limit and role", async () => {
   const badLimit = await runCli(["list", "--limit", "0"]);
-  assert.equal(badLimit.code, 2);
-  assert.equal(JSON.parse(badLimit.stderr).error.code, "USAGE_INVALID_VALUE");
+  assert.equal(badLimit.code, 1);
+  assert.match(badLimit.stderr, /--limit/);
 
   const badRole = await runCli(["list", "--role", "admin"]);
-  assert.equal(badRole.code, 2);
-  assert.equal(JSON.parse(badRole.stderr).error.code, "USAGE_INVALID_ROLE");
+  assert.equal(badRole.code, 1);
+  assert.match(badRole.stderr, /role/i);
 });
 
 test("info resolves a project_id from the manifest", async () => {
@@ -342,10 +343,10 @@ test("info resolves a project_id from the manifest", async () => {
     const result = await runCli(["info"], { env: { SITES_MCP_URL: mcp.url }, cwd: dir });
     assert.equal(result.code, 0, result.stderr);
     const body = JSON.parse(result.stdout);
-    assert.equal(body.data.project_id, "appgprj_abc");
-    assert.equal(body.data.url, "https://demo.chatgpt.site");
-    assert.equal(body.data.latest_version_number, 1);
-    assert.equal(body.data.custom_domains[0].hostname, "example.com");
+    assert.equal(body.project_id, "appgprj_abc");
+    assert.equal(body.url, "https://demo.chatgpt.site");
+    assert.equal(body.latest_version_number, 1);
+    assert.equal(body.custom_domains[0].hostname, "example.com");
     assert.deepEqual(
       mcp.calls
         .filter((call) => call.method === "tools/call")
@@ -385,13 +386,13 @@ test("info accepts a slug and resolves it through list_sites", async () => {
   }
 });
 
-test("info without a manifest or argument exits 5", async () => {
+test("info without a manifest or argument exits 1", async () => {
   const result = await runCli(["info"], { cwd: tempDir() });
-  assert.equal(result.code, 5);
-  assert.equal(JSON.parse(result.stderr).error.code, "PREFLIGHT_NO_PROJECT");
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /project|manifest/i);
 });
 
-test("MCP tool errors map to documented exit codes", async () => {
+test("MCP tool errors render human messages with exit 1", async () => {
   const conflict = await createMockMcp(() => ({
     result: {
       isError: true,
@@ -404,10 +405,8 @@ test("MCP tool errors map to documented exit codes", async () => {
   }));
   try {
     const result = await runCli(["list"], { env: { SITES_MCP_URL: conflict.url } });
-    assert.equal(result.code, 6);
-    const error = JSON.parse(result.stderr).error;
-    assert.equal(error.code, "CONFLICT");
-    assert.equal(error.message, "slug already exists");
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /^Error: slug already exists/);
   } finally {
     await conflict.close();
   }
@@ -420,8 +419,8 @@ test("MCP tool errors map to documented exit codes", async () => {
   }));
   try {
     const result = await runCli(["list"], { env: { SITES_MCP_URL: notFound.url } });
-    assert.equal(result.code, 5);
-    assert.equal(JSON.parse(result.stderr).error.code, "NOT_FOUND");
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /^Error: not found/);
   } finally {
     await notFound.close();
   }
@@ -446,12 +445,12 @@ test("429 is retried with backoff", async () => {
   }
 });
 
-test("network failures exit 4", async () => {
+test("network failures exit 1", async () => {
   const result = await runCli(["list"], {
     env: { SITES_MCP_URL: "http://127.0.0.1:1/mcp", SITES_RETRY_BASE_MS: "1" },
   });
-  assert.equal(result.code, 4);
-  assert.equal(JSON.parse(result.stderr).error.code, "NETWORK_ERROR");
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /^Error: /);
 });
 
 test("human output renders a table", async () => {

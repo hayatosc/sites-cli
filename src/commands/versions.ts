@@ -219,7 +219,7 @@ export function registerVersionCommands(define: DefineCommand): void {
 
   define({
     path: ["versions", "rollback"],
-    flags: ["previous", "yes", "force"],
+    flags: ["previous", "force"],
     positionals: { min: 0, max: 1, names: ["version_id|--previous"] },
     summary: "Redeploy an existing version",
     usage: "sites versions rollback <version_id|--previous> [--force]",

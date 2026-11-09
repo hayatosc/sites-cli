@@ -54,7 +54,7 @@ export default defineConfig({
     clean: true,
     deps: {
       neverBundle: ["rolldown"],
-      alwaysBundle: ["tinyexec"],
+      alwaysBundle: ["tinyexec", "gunshi"],
     },
     plugins: [docsBundlePlugin()],
     banner: "#!/usr/bin/env node",

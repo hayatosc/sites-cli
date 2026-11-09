@@ -127,20 +127,22 @@ function readSections(): DocSection[] {
 
 function searchDocument(item: CommandDefinition): CliSearchDocument {
   const command = `sites ${item.path.join(" ")}`;
+  const summary = item.gunshi?.description ?? item.summary ?? "";
+  const args = Object.entries(item.gunshi?.args ?? {});
   const parents = item.path
     .slice(0, -1)
     .map((_, index) => `sites ${item.path.slice(0, index + 1).join(" ")}`);
   return {
     command,
-    summary: item.summary ?? "",
-    description: item.summary ?? "",
+    summary,
+    description: summary,
     keywords: (item.keywords ?? []).join(" "),
     context: [
       ...parents,
       item.usage ?? "",
-      ...(item.flags ?? []),
-      ...(item.positionals?.names ?? []),
-      item.summary ?? "",
+      ...args.filter(([, schema]) => schema.type !== "positional").map(([name]) => name),
+      ...args.filter(([, schema]) => schema.type === "positional").map(([name]) => name),
+      summary,
     ].join(" "),
   };
 }
@@ -286,7 +288,10 @@ export function registerDocsCommands(define: DefineCommand, commands: CommandDef
           },
         };
       }
-      const mappedNames = COMMAND_TOOLS[wanted];
+      const registered = commands.find(
+        (command) => command.gunshi && command.path.join(" ") === wanted,
+      );
+      const mappedNames = registered ? COMMAND_TOOLS[registered.path.join(" ")] : undefined;
       if (mappedNames) {
         const schemas = mappedNames.map((name) =>
           tools.find((tool) => tool.name === `sites.${name}`),

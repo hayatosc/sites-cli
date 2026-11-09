@@ -107,12 +107,12 @@ test("init creates a static project and git repository", async () => {
 test("init rejects unknown templates and non-empty directories", async () => {
   const root = tempDir("sites-init-");
   const bad = await runCli(["init", root, "--template", "next"]);
-  assert.equal(bad.code, 2);
+  assert.equal(bad.code, 1);
   assert.match(bad.stderr, /Unknown template/);
 
   fs.writeFileSync(path.join(root, "keep.txt"), "x");
   const occupied = await runCli(["init", root]);
-  assert.equal(occupied.code, 5);
+  assert.equal(occupied.code, 1);
   assert.match(occupied.stderr, /not empty/);
 });
 
@@ -125,8 +125,8 @@ test("create dry-run does not touch the API", async () => {
   });
   assert.equal(result.code, 0, result.stderr);
   const json = JSON.parse(result.stdout);
-  assert.equal(json.data.slug, "my-site");
-  assert.equal(json.data.project_id, "(dry-run)");
+  assert.equal(json.slug, "my-site");
+  assert.equal(json.project_id, "(dry-run)");
 });
 
 test("create stores the project id and applies access mode", async () => {
@@ -158,8 +158,8 @@ test("create stores the project id and applies access mode", async () => {
     });
     assert.equal(result.code, 0, result.stderr);
     const json = JSON.parse(result.stdout);
-    assert.equal(json.data.project_id, "appgprj_new");
-    assert.equal(json.data.access_mode, "public");
+    assert.equal(json.project_id, "appgprj_new");
+    assert.equal(json.access_mode, "public");
     const manifest = JSON.parse(fs.readFileSync(path.join(root, ".openai/hosting.json"), "utf8"));
     assert.equal(manifest.project_id, "appgprj_new");
     const access = mock.calls.find((call) => call.name === "sites.update_site_access");
@@ -180,7 +180,7 @@ test("create stops when the slug is taken", async () => {
       cwd: root,
       env: { SITES_MCP_URL: mock.url },
     });
-    assert.equal(result.code, 6);
+    assert.equal(result.code, 1);
     assert.match(result.stderr, /already in use/);
   } finally {
     await mock.close();
@@ -200,7 +200,7 @@ test("status returns exit 1 when the deployment failed", async () => {
   try {
     const result = await runCli(["status"], { cwd: root, env: { SITES_MCP_URL: mock.url } });
     assert.equal(result.code, 1);
-    assert.equal(JSON.parse(result.stdout).data.status, "failed");
+    assert.equal(JSON.parse(result.stdout).status, "failed");
   } finally {
     await mock.close();
   }
@@ -227,7 +227,7 @@ test("status --watch polls until success", async () => {
       env: { SITES_MCP_URL: mock.url },
     });
     assert.equal(result.code, 0, result.stderr);
-    assert.equal(JSON.parse(result.stdout).data.status, "succeeded");
+    assert.equal(JSON.parse(result.stdout).status, "succeeded");
     assert.equal(statusCalls, 3);
   } finally {
     await mock.close();
@@ -237,7 +237,7 @@ test("status --watch polls until success", async () => {
 test("logs validates --since and forwards filters", async () => {
   const { root } = makeProject();
   const bad = await runCli(["logs", "--since", "yesterday"], { cwd: root });
-  assert.equal(bad.code, 2);
+  assert.equal(bad.code, 1);
 
   const mock = await createMockMcp(() =>
     structured({
@@ -276,9 +276,9 @@ test("deploy --dry-run builds without credentials", async () => {
   const json = await runCli(["deploy", "--dry-run"], { cwd: root });
   assert.equal(json.code, 0, json.stderr);
   const body = JSON.parse(json.stdout);
-  assert.equal(body.data.detection.package_manager, "npm");
-  assert.equal(body.data.detection.build_script, "build");
-  assert.equal(body.data.detection.kind, "static");
+  assert.equal(body.detection.package_manager, "npm");
+  assert.equal(body.detection.build_script, "build");
+  assert.equal(body.detection.kind, "static");
 });
 
 test("deploy uploads, saves, polls, and records state", async () => {
@@ -415,7 +415,7 @@ for (const accessMode of ["custom", "public"])
         },
       });
       assert.equal(result.code, 0, result.stderr);
-      const body = JSON.parse(result.stdout).data;
+      const body = JSON.parse(result.stdout);
       assert.equal(body.status, "uploaded");
       assert.equal(body.deployment_id, null);
       assert.equal(body.access_mode, accessMode);
@@ -453,7 +453,7 @@ test("versions create native dry-run builds offline without touching uploaded/de
     env: { SITES_ACCESS_TOKEN: undefined, SITES_AUTH_PATH: path.join(root, "missing-auth.json") },
   });
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).data.dry_run, true);
+  assert.equal(JSON.parse(result.stdout).dry_run, true);
   assert.ok(fs.existsSync(path.join(root, "dist/index.html")));
   assert.equal(fs.existsSync(path.join(root, ".sites/state.json")), false);
 });
@@ -524,6 +524,6 @@ test("deploy --prebuilt uses existing output without running the build", async (
   );
   assert.equal(json.code, 0, json.stderr);
   const body = JSON.parse(json.stdout);
-  assert.deepEqual(body.data.environment.keys, ["TOKEN", "DERIVED"]);
-  assert.deepEqual(body.data.environment.secret_keys, ["TOKEN", "DERIVED"]);
+  assert.deepEqual(body.environment.keys, ["TOKEN", "DERIVED"]);
+  assert.deepEqual(body.environment.secret_keys, ["TOKEN", "DERIVED"]);
 });

@@ -38,8 +38,8 @@ for (const failure of [false, true]) {
         ["url.dll,FileProtocolHandler", new URL(suffix, "https://fixture.example/").toString()],
         { detached: true, stdio: "ignore" },
       ]);
-      if (failure) assert.match(result.stderr, /BROWSER_OPEN_FAILED/);
-      else assert.equal(JSON.parse(result.stdout).data.opened, true);
+      if (failure) assert.match(result.stderr, /Could not start the browser opener/);
+      else assert.equal(JSON.parse(result.stdout).opened, true);
     } finally {
       launcher.mockRestore();
       if (originalPlatform) Object.defineProperty(process, "platform", originalPlatform);

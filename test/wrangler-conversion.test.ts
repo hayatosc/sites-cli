@@ -135,12 +135,11 @@ test("a converted worker passes deploy preflight and packaging", async () => {
   const result = await runCli(["deploy", "--dry-run"], { cwd: root });
   assert.equal(result.code, 0);
   const payload = JSON.parse(result.stdout) as {
-    ok: boolean;
-    data: { kind: string; archive: { file_count: number } };
+    kind: string;
+    archive: { file_count: number };
   };
-  assert.equal(payload.ok, true);
-  assert.equal(payload.data.kind, "worker");
-  assert.ok(payload.data.archive.file_count >= 2);
+  assert.equal(payload.kind, "worker");
+  assert.ok(payload.archive.file_count >= 2);
 });
 
 test("unsupported sections block without writing outputs", async () => {
@@ -161,7 +160,7 @@ test("unsupported sections block without writing outputs", async () => {
     (error: unknown) =>
       error instanceof CliError &&
       error.code === "PREFLIGHT_UNSUPPORTED_BINDING" &&
-      error.exitCode === 5,
+      error.exitCode === 1,
   );
   assert.equal(fs.existsSync(path.join(root, ".openai/hosting.json")), false);
   assert.equal(fs.existsSync(path.join(root, "dist")), false);

@@ -39,7 +39,7 @@ function matchesFileName(name: string, pattern: string): boolean {
 export function registerMigrationCommands(define: DefineCommand): void {
   define({
     path: ["migrations", "create"],
-    flags: ["dir", "pattern"],
+    flags: ["dir", "pattern", "force"],
     positionals: { min: 1, max: 1, names: ["message"] },
     summary: "Create an empty numbered SQL migration locally",
     usage: "sites migrations create <message> [--dir drizzle] [--pattern '<dir>/*.sql']",
@@ -104,7 +104,7 @@ export function registerMigrationCommands(define: DefineCommand): void {
             hint: "For an ORM-managed nested layout, use its generator (for example drizzle-kit generate).",
           },
         );
-      if (!fs.existsSync(directory) && process.stdin.isTTY && !ctx.yes) {
+      if (!fs.existsSync(directory) && process.stdin.isTTY && !ctx.options.force) {
         const answer = await new Promise<string>((resolve) => {
           const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
           rl.question(`? No migrations folder found. Create ${directory}? [Y/n] `, (value) => {

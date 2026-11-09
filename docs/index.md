@@ -1,40 +1,32 @@
-# sites manual
+# sites CLI manual
 
-`sites` is a command-line client for creating, deploying, and operating ChatGPT Sites. It uses the Codex CLI credentials, so there is no separate login flow.
+`sites` creates, deploys, and operates ChatGPT Sites using the Codex CLI credentials. There is no separate login flow.
 
 ## Install and run
 
-Node.js 22.13 or newer is required. Use `npx` to run the CLI without installing it.
+Node.js 22.13 or newer is required.
 
 ```sh
 npx @hayatosc/sites --help
-npx @hayatosc/sites auth whoami
 ```
 
-To pin a version, add the package to your project.
-
-```sh
-ni -D @hayatosc/sites
-npx sites --version
-```
+You can also install the package globally and run `sites` directly.
 
 ## Authentication
 
-The access token is resolved in this order:
+Credentials are read in this order:
 
-1. The `SITES_ACCESS_TOKEN` environment variable.
+1. `SITES_ACCESS_TOKEN`.
 2. `tokens.access_token` in `~/.codex/auth.json`.
 
-If the token in `~/.codex/auth.json` has expired, the CLI refreshes it and writes the rotated token back to the same file with mode `0600`. It never creates a separate login or token store.
+Network commands refresh an expired Codex token when a refresh token is available, and atomically write rotated credentials with mode `0600`. Normal `whoami` only reports identity and expiry; it does not refresh. Environment tokens cannot be refreshed. The CLI never creates a separate token store.
 
 ```sh
 npx @hayatosc/sites auth whoami
 npx @hayatosc/sites auth whoami --check
 ```
 
-`--check` connects to the MCP server and verifies both authentication and connectivity.
-
-`whoami` follows the `cf` CLI shape: it reports `authenticated`, `authSource`, `tokenValid`, `accountId`, `expiresAt`, and `refreshTokenPresent`. Without credentials it still succeeds with `authenticated: false` and `error: "Not logged in"`, so scripts can branch on the result. `--check` is the exception: it needs valid credentials because it contacts MCP.
+`whoami` reports `authenticated`, `authSource`, `tokenValid`, `accountId`, `expiresAt`, and `refreshTokenPresent`. Without credentials it succeeds with `authenticated: false` and `error: "Not logged in"`. `--check` requires valid credentials and verifies the MCP connection.
 
 ## First deployment
 
@@ -46,57 +38,44 @@ npx @hayatosc/sites deploy
 npx @hayatosc/sites open
 ```
 
-`init` creates `.openai/hosting.json` and a build scaffold. `create` creates the site and stores the returned `project_id` in the manifest. `deploy` builds the project, syncs source, uploads the archive, and deploys it.
+`init` creates a manifest with `project_id: null` and a build scaffold. `create` creates the remote site and saves its ID. `deploy` builds, synchronizes source, uploads, and deploys.
 
 ## Output
 
-The default output is bare pretty-printed JSON, matching cf. Errors are human-readable on stderr and exit 1; interruption exits 130. Delegated `dev`/build subprocesses preserve their exit status. Search results are bare arrays and schema results are tool objects.
+Success data is pretty-printed bare JSON on stdout, without an envelope. Search results are arrays; schema results are tool objects or arrays. `open --print` writes only a URL. `logs --follow` streams one JSON event per line (NDJSON).
 
-Use `--json` to retain the previous envelope and detailed error codes:
+Errors are human-readable on stderr, with optional `hint:` and `docs:` lines. Progress and warnings also use stderr; success labels require a TTY. `--quiet` suppresses results and progress, not errors or required confirmation. `--quiet=false` restores output. `NO_COLOR` and `--no-color` disable colors.
 
-```json
-{
-  "ok": true,
-  "data": {},
-  "meta": {
-    "duration_ms": 120,
-    "request_id": "req_..."
-  }
-}
-```
+`--human` is an optional Sites extension for readable tables and text. There is no `--json` output mode, structured error JSON, or `{ok,data,meta}` envelope. Update older scripts to read the result directly.
 
-Use `--human` for human-readable output. Progress, warnings, and diagnostics go to stderr; success labels appear only on a TTY. `--quiet` suppresses results and progress (not errors), and `--quiet=false` restores output. With explicit `--json`, errors return `ok: false` plus `error.code`, `error.message`, and `error.hint`.
+Every command accepts `--dry-run`. Most only validate arguments without auth, network, or filesystem effects. Native deploy/version previews may build locally; migrate stages conversion; create and env push inspect local inputs. Previews omit sensitive argument values.
 
-Every command supports `--dry-run`: most only preview parsed arguments without auth, network or file effects. Native deploy/version previews may build locally; migrate stages output in a temporary directory; create/env push inspect local inputs. Preview results omit sensitive argument values.
+Destructive confirmation can only be bypassed with `--force` (`-f`) on commands that support it. `--yes` and `-y` are not supported. Quiet is not consent.
 
 ## Exit codes
 
-Default mode uses 0, 1 and 130, like cf. Explicit `--json` retains these detailed codes:
+| Code | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | Failure, including usage, auth, network, preflight, conflict, and child-process failure |
+| 130 | Interruption or declined confirmation |
 
-| Code | Meaning                                      |
-| ---- | -------------------------------------------- |
-| 0    | Success                                      |
-| 1    | General error or failed deployment           |
-| 2    | Invalid arguments                            |
-| 3    | Authentication error                         |
-| 4    | Network error or timeout                     |
-| 5    | Preflight failure                            |
-| 6    | Conflict (slug taken, source changed, etc.)  |
-| 130  | Interrupted (SIGINT)                         |
+Signals are forwarded and the CLI waits for child shutdown. Child exit values do not introduce additional CLI exit codes.
 
-## Searching the manual
-
-`sites docs search` searches the manual bundled into the CLI. It does not read a `docs/` directory or use the network. It returns up to five `{title, description, url, file, line}` results; `url` points at the matching section of the GitHub-hosted manual.
+## Find commands and documentation
 
 ```sh
+npx @hayatosc/sites cli search "deploy site"
 npx @hayatosc/sites docs search "custom domain"
-npx @hayatosc/sites docs search "dry-run"
+npx @hayatosc/sites schema deploy
 ```
 
-Use `sites cli search` to find commands by task. It returns up to five `{command, summary}` results, ranked by dependency-free weighted substring matching, exact-command priority, and limited typo correction. Rankings are not identical to `cf cli search`. Keep queries anonymous: describe the action and resource type, not names, domains, IDs, or tokens.
+Search works against bundled command definitions and documentation, without a local `docs/` directory or a remote search service. `schema` reads current MCP tool schemas and requires credentials. Run `sites <command> --help` for command-specific flags.
 
-```sh
-npx @hayatosc/sites cli search "environment variables"
-```
+## Manual sections
 
-Both searches are advertised in `--help` when the CLI detects an agent harness. After choosing a command, run `sites <command> --help` for its flags. `sites schema --list` lists MCP tools, and `sites schema <tool>` prints one tool's input schema; `sites schema versions create` maps a CLI path to its underlying MCP schemas.
+- [Projects](projects.md): initialization, local workflows, creation, listing, and deletion.
+- [Deployment](deploy.md): builds, source synchronization, uploads, status, and logs.
+- [Operations](operations.md): versions, environment, access, domains, analytics, and diagnostics.
+- [Configuration](configuration.md): manifest, runtime bindings, and Wrangler conversion.
+- [Reference](reference.md): commands, flags, environment variables, and output.

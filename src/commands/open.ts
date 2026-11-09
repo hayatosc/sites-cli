@@ -92,7 +92,7 @@ export function registerOpenDeleteCommands(define: DefineCommand): void {
 
   define({
     path: ["delete"],
-    flags: ["yes", "force"],
+    flags: ["force"],
     positionals: { min: 0, max: 1, names: ["project_id|slug"] },
     summary: "Delete a site permanently",
     usage: "sites delete [<project_id|slug>] [--force]",

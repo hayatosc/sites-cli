@@ -1,17 +1,21 @@
-// Machine-readable error codes and process exit codes (plan §3.3/§3.4).
+// Internal diagnostic identifiers and cf-compatible process exit status.
 
 export const EXIT = {
   OK: 0,
   GENERAL: 1,
-  USAGE: 2,
-  AUTH: 3,
-  NETWORK: 4,
-  PREFLIGHT: 5,
-  CONFLICT: 6,
+  USAGE: 1,
+  AUTH: 1,
+  NETWORK: 1,
+  PREFLIGHT: 1,
+  CONFLICT: 1,
   INTERRUPT: 130,
 } as const;
 
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
+
+export function normalizeExitCode(code: number): ExitCode {
+  return code === EXIT.OK ? EXIT.OK : code === EXIT.INTERRUPT ? EXIT.INTERRUPT : EXIT.GENERAL;
+}
 
 export interface CliErrorOptions {
   exitCode?: number;

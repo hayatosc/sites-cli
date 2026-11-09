@@ -12,7 +12,7 @@ npx @hayatosc/sites versions rollback <version_id> --force
 npx @hayatosc/sites versions rollback --previous --force
 ```
 
-`--previous` finds the prior successfully deployed version relative to the locally recorded successful deployment, skipping newer or never-deployed uploads. It refuses ambiguity or missing active-version metadata; pass an explicit version ID instead. Rollback requires confirmation (`--force` or `--yes` in noninteractive shells), redeploys without building/uploading, and returns a pending request. Use `status --watch` to check completion. Sites with custom access use a private deployment; other sites use a normal deployment.
+`--previous` finds the prior successfully deployed version relative to the locally recorded successful deployment, skipping newer or never-deployed uploads. It refuses ambiguity or missing active-version metadata; pass an explicit version ID instead. Rollback requires confirmation (`--force` in noninteractive shells), redeploys without building/uploading, and returns a pending request. Use `status --watch` to check completion. Sites with custom access use a private deployment; other sites use a normal deployment.
 
 `versions create` runs the same build/source/archive/upload/save steps as deploy but does not activate a deployment or modify audience/environment. `--prebuilt` skips the build; `--dry-run` builds/validates locally without remote effects. Uploaded metadata and tags are stored separately from the last deployment.
 
@@ -26,7 +26,7 @@ npx @hayatosc/sites env set API_KEY=secret-value --secret
 npx @hayatosc/sites env unset API_URL --force
 ```
 
-`env unset` requires confirmation, as cf secret deletion does (`--force` or `--yes` for scripts).
+`env unset` requires confirmation, as cf secret deletion does (`--force` for scripts).
 
 Changes made by `env set` and `env unset` take effect on the next deployment. Saving a value alone does not change the running site.
 
@@ -54,9 +54,9 @@ npx @hayatosc/sites access set --workspace
 npx @hayatosc/sites access set --private --allow-email user@example.com
 ```
 
-Publishing via `--public` requires confirmation; use `--yes` in noninteractive shells. `--private`, `--public`, and `--workspace` are mutually exclusive. `--allow-email` is available for private and workspace access, but not public access.
+Publishing via `--public` requires confirmation; use `--force` in noninteractive shells. `--private`, `--public`, and `--workspace` are mutually exclusive. `--allow-email` is available for private and workspace access, but not public access.
 
-`--wait` waits until the access mode actually changes. Propagation can take 40 to 60 seconds.
+`--wait` polls until the reported access mode matches. Timeout defaults to 120 seconds (maximum 600); actual service propagation time is not guaranteed by the CLI.
 
 ```sh
 npx @hayatosc/sites access set --public --wait --timeout 120
@@ -106,12 +106,12 @@ npx @hayatosc/sites doctor --verbose
 - Whether `project_id` matches the API site record.
 - Unsupported wrangler features.
 - Consistency between `dist` and the manifest.
-- Uncommitted changes and divergence from the remote.
+- Local HEAD and uncommitted changes; no remote divergence fetch is performed.
 - Whether Git is available.
 - The `build` script in `package.json`.
-- Recent rate limiting.
+- A recorded `last_rate_limited_at` timestamp, when present (the CLI does not currently populate it).
 - Consistency between local state and the actual deployment.
 
-`--offline` skips checks that need the network. `--fix-git` creates a missing `.gitignore` and initializes Git when the project is not already a repository; existing ignore files are preserved. `--verbose` prints details for each check.
+`--offline` skips checks that need the network. `--fix-git` creates a missing `.gitignore` and initializes Git when the project is not already a repository; existing ignore files are preserved. `--verbose` adds successful-check detail in human output; JSON already contains diagnostic detail.
 
 The command exits 0 when no check fails, and 1 when any check fails. Warnings alone exit 0.

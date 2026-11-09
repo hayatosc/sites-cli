@@ -1,5 +1,6 @@
 // Shared types for the command layer.
 
+import type { Command } from "gunshi";
 import type { Identity } from "./auth.ts";
 import type { McpClient } from "./mcp.ts";
 
@@ -16,13 +17,15 @@ export interface CommandResult<T = unknown> {
   // Method syntax keeps the callback bivariant so concrete results can be
   // registered as an erased CommandDefinition.
   human?(data: T): void;
-  /** Writes raw stdout instead of the JSON envelope (e.g. `open --print`). */
+  /** Writes raw stdout instead of JSON (e.g. `open --print`). */
   raw?: string;
   /** Overrides the process exit code for successful (non-throwing) results. */
   exitCode?: number;
 }
 
 export interface CommandDefinition<T = unknown> {
+  /** Native definition shared by execution, help and discovery. */
+  gunshi?: Command;
   path: string[];
   flags?: string[];
   /** Native previews may build locally; other commands only preview parsed arguments. */
@@ -39,21 +42,6 @@ export interface CommandDefinition<T = unknown> {
 
 export type DefineCommand = <T>(command: CommandDefinition<T>) => void;
 
-export interface ResolvedCommand extends CommandDefinition {
-  /** Indexes in argv occupied by the command words. */
-  consumedIndexes: number[];
-}
-
-export interface ParsedCli {
-  command?: ResolvedCommand;
-  options: Record<string, unknown>;
-  positionals: string[];
-  help: boolean;
-  version: boolean;
-  /** Set when `<group> --help` was requested. */
-  helpGroup?: string;
-}
-
 export interface CommandContext {
   argv: readonly string[];
   command: CommandDefinition;
@@ -66,7 +54,6 @@ export interface CommandContext {
   stderr: OutputStream;
   json: boolean;
   quiet: boolean;
-  yes: boolean;
   /** Resolves (and caches) Codex credentials. */
   getIdentity: () => Identity;
   log: (text: string) => void;

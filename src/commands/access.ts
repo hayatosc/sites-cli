@@ -74,7 +74,7 @@ export function registerAccessCommands(define: DefineCommand): void {
 
   define({
     path: ["access", "set"],
-    flags: ["private", "public", "workspace", "allow-email", "wait", "timeout"],
+    flags: ["private", "public", "workspace", "allow-email", "wait", "timeout", "force"],
     positionals: { min: 0, max: 0 },
     summary: "Change the site access mode",
     usage:
@@ -101,7 +101,12 @@ export function registerAccessCommands(define: DefineCommand): void {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       if (
         mode === "public" &&
-        !(await confirmDestructive(ctx, `site ${projectId} publicly`, false, "publishes", "--yes"))
+        !(await confirmDestructive(
+          ctx,
+          `site ${projectId} publicly`,
+          Boolean(ctx.options.force),
+          "publishes",
+        ))
       ) {
         throw new CliError("CANCELLED", "Access change cancelled.", { exitCode: EXIT.INTERRUPT });
       }

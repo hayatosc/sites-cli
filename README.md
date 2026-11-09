@@ -6,7 +6,7 @@ Command-line client for ChatGPT Sites. Requires Node.js 22.13 or newer.
 npx @hayatosc/sites --help
 ```
 
-The npm package keeps Rolldown as a normal runtime dependency, including its platform-specific native binding. Only tinyexec is bundled into the CLI JavaScript. Run `dist/cli.mjs` with the package's installed dependencies; no native-library path override is needed, and the Worker project does not need its own Rolldown installation.
+The npm package keeps Rolldown as a normal runtime dependency, including its platform-specific native binding. Gunshi and tinyexec are bundled into the CLI JavaScript. Run `dist/cli.mjs` with the package's installed dependencies; no native-library path override is needed, and the Worker project does not need its own Rolldown installation.
 
 ## Authentication
 
@@ -29,7 +29,7 @@ npx @hayatosc/sites deploy
 npx @hayatosc/sites open
 ```
 
-`init` scaffolds an empty directory or configures an existing project without replacing its sources or package scripts. `create` creates the site and stores the returned `project_id` in `.openai/hosting.json`. `deploy` builds the project, syncs source, uploads the archive, and deploys it.
+`init` scaffolds an empty directory or, when no template is selected, configures an existing detected project without replacing its sources or package scripts. `create` creates the site and stores the returned `project_id` in `.openai/hosting.json`. `deploy` builds the project, syncs source, uploads the archive, and deploys it.
 
 ## Commands
 
@@ -64,28 +64,23 @@ Run `sites <command> --help` for command-specific flags.
 
 ## Output and exit codes
 
-Like cf, the default is bare JSON on stdout, with human-readable errors on stderr and exit 1 on failure (130 on interruption; delegated `dev`/build commands preserve subprocess exit status). `--quiet` suppresses results and progress, but not errors; `--quiet=false` re-enables output. Success labels appear only on interactive stderr. `--human` is a human-readable extension.
+Like cf, success data is bare JSON on stdout and errors are human-readable on stderr. Exit codes are 0 (success), 1 (any failure), and 130 (interruption or declined confirmation), including delegated builds and dev commands. `--quiet` suppresses results and progress, but not errors; `--quiet=false` re-enables output. Success labels appear only on interactive stderr. `--human` is a human-readable extension.
 
-**Compatibility:** scripts expecting the previous `{ok,data,meta}` envelope must now pass `--json`. This explicit mode also retains structured errors and the detailed exit codes below. Search results are bare arrays by default, or `data` arrays with `--json`. `logs --follow` streams NDJSON (human lines with `--human`) rather than a final envelope.
+Search results are bare arrays. `logs --follow` streams NDJSON (human lines with `--human`). The former `--json` envelope/structured-error mode and `--yes`/`-y` flags are removed. Update scripts to read results directly and use `--force` on commands requiring noninteractive confirmation; `--quiet` is not consent.
 
 Every command accepts `--dry-run`. Most preview parsed arguments only, without auth, network, files or argument values. Deploy/version creation may build locally; migrate stages its conversion; create/env push validate local inputs.
 
-| Code | Meaning                                     |
-| ---- | ------------------------------------------- |
-| 0    | Success                                     |
-| 1    | General error or failed deployment          |
-| 2    | Invalid arguments                           |
-| 3    | Authentication error                        |
-| 4    | Network error or timeout                    |
-| 5    | Preflight failure                           |
-| 6    | Conflict (slug taken, source changed, etc.) |
-| 130  | Interrupted                                 |
+| Code | Meaning                            |
+| ---- | ---------------------------------- |
+| 0    | Success                            |
+| 1    | General error or failed deployment |
+| 130  | Interrupted                        |
 
 ## Converting from wrangler
 
 Use `sites migrate [directory-or-config-file] --dry-run` to inspect conversion first. Applying requires a clean Git worktree unless `--force`; replacing a manifest also requires `--force` and retains its linked `project_id`.
 
-When `wrangler.jsonc`, `wrangler.json`, or `wrangler.toml` is present, `deploy` converts it to `.openai/hosting.json` and bundles the Worker with Rolldown. If an unsupported binding is present, the command stops without writing files. Use `--allow-unsupported <kind>` to continue intentionally.
+When `.openai/hosting.json` is absent and `wrangler.jsonc`, `wrangler.json`, or `wrangler.toml` is present, `deploy` converts it to `.openai/hosting.json` and bundles the Worker with Rolldown. If an unsupported binding is present, the command stops without writing files. Use `--allow-unsupported <kind>` to continue intentionally.
 
 For other projects, `deploy` detects the framework, package manager, build command, and output directory using cf-compatible rules. Static output directories such as `dist`, `build`, `out`, `public`, and `.output/public` are normalized to `dist/`; worker output is rebundled to `dist/server/index.js`.
 

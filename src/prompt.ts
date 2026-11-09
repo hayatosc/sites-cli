@@ -9,13 +9,12 @@ export async function confirmDestructive(
   label: string,
   force: boolean,
   action = "permanently deletes",
-  confirmationFlag = "--force",
 ): Promise<boolean> {
-  if (force || ctx.yes) return true;
+  if (force) return true;
   if (!process.stdin.isTTY) {
     throw new CliError("CONFIRM_REQUIRED", `This ${action} ${label}.`, {
       exitCode: EXIT.USAGE,
-      hint: `Re-run with ${confirmationFlag} to confirm in a non-interactive shell.`,
+      hint: "Re-run with --force to confirm in a non-interactive shell.",
     });
   }
   const answer = await new Promise<string>((resolve) => {

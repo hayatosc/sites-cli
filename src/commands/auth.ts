@@ -48,7 +48,7 @@ export function registerAuthCommands(define: DefineCommand): void {
       try {
         identity = ctx.getIdentity();
       } catch (error) {
-        if (ctx.options.check || !(error instanceof CliError) || error.exitCode !== 3) {
+        if (ctx.options.check || !(error instanceof CliError) || !error.code.startsWith("AUTH_")) {
           throw error;
         }
         const data: WhoamiData = {

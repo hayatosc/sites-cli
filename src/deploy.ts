@@ -83,11 +83,11 @@ function accessModeFromFlags(ctx: CommandContext): "custom" | "public" | "worksp
 }
 
 async function confirmPublic(ctx: CommandContext): Promise<void> {
-  if (ctx.yes || ctx.options.force) return;
+  if (ctx.options.force) return;
   if (!process.stdin.isTTY) {
     throw new CliError("CONFIRM_REQUIRED", "Publishing a site requires confirmation.", {
       exitCode: EXIT.USAGE,
-      hint: "Re-run with --yes to publish without a prompt.",
+      hint: "Re-run with --force to publish without a prompt.",
     });
   }
   const answer = await new Promise<string>((resolve) => {

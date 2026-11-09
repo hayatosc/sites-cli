@@ -143,12 +143,7 @@ export async function runCli(
   const err = new Collector();
   out.isTTY = options.tty ?? false;
   err.isTTY = options.tty ?? false;
-  // Existing contract tests explicitly exercise the backwards-compatible envelope.
-  const argv =
-    options.defaultOutput || args.some((arg) => arg.startsWith("--json") || arg === "--human")
-      ? args
-      : ["--json", ...args];
-  const code = await main(argv, {
+  const code = await main(args, {
     env,
     cwd: options.cwd ?? process.cwd(),
     stdout: out,

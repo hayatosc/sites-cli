@@ -4,13 +4,13 @@
 
 `deploy` performs the full workflow in one command:
 
-1. Preflight checks (manifest, build output, size, uncommitted changes).
-2. Build.
-3. Source synchronization.
-4. Archive creation.
-5. Upload.
-6. Version save.
-7. Deployment and polling.
+1. Validate options and check uncommitted changes.
+2. Convert Wrangler configuration if the manifest is absent, then read the linked manifest.
+3. Detect/build or normalize output, then inspect the artifact and environment inputs. A native dry-run stops here.
+4. Resolve authentication/site access and confirm a public access change if needed.
+5. Synchronize source and create/upload the archive.
+6. Save the version and uploaded metadata; apply environment changes.
+7. Deploy, poll, update the desired audience, and save successful deployment state.
 
 ```sh
 npx @hayatosc/sites deploy
@@ -36,7 +36,7 @@ npx @hayatosc/sites deploy --message "Update pricing page"
 | `--allow-unsupported <kinds>` | Downgrade unsupported wrangler features to warnings (comma-separated) |
 | `--timeout <seconds>`         | Deployment wait timeout (default 300)                         |
 
-Only one access option may be specified. When `--public` is used outside an interactive terminal, also pass `--yes`.
+Only one access option may be specified. Changing a non-public site to public requires confirmation; use `--force` outside an interactive terminal.
 
 ## Source synchronization
 
@@ -47,7 +47,7 @@ Only one access option may be specified. When `--public` is used outside an inte
 - Credentials are passed as a one-off HTTP header and are never written to Git configuration.
 - The remote commit is verified after the push to detect concurrent changes.
 
-If the working tree has uncommitted changes, the command stops with `CONFLICT_DIRTY_TREE` (exit code 5) unless `--allow-dirty` is given. Use `--no-source-sync` to skip synchronization; this requires a recent commit.
+Uncommitted changes stop the command (exit 1) unless `--allow-dirty` is given, including prebuilt, dry-run and no-source-sync workflows. `--no-source-sync` skips synchronization and uses the existing HEAD or recorded uploaded/deployed commit; it does not require a recently dated commit.
 
 ## Environment and secrets
 
@@ -59,7 +59,7 @@ npx @hayatosc/sites deploy --secrets-file .env.secrets
 
 ## Build
 
-The external build's stdout/stderr stream immediately to stderr, never into the JSON result. Real terminal stdin/stderr are inherited, preserving framework TTY behavior; injected embedding streams are relayed. `--quiet` suppresses child progress. Child build failures retain their exit status. SIGINT/SIGTERM are forwarded and the CLI waits for shutdown; cancellation stops before any upload or deployment even if the child exits gracefully with code 0.
+The external build's stdout/stderr stream immediately to stderr, never into the JSON result. Real terminal stdin/stderr are inherited, preserving framework TTY behavior; injected embedding streams are relayed. `--quiet` suppresses child progress. Child build failures exit 1; interruptions exit 130. SIGINT/SIGTERM are forwarded and the CLI waits for shutdown; cancellation stops before any upload or deployment even if the child exits gracefully with code 0.
 
 The existing build safeguard is a 10-minute deadline, unlike cf's unbounded delegate build. A timed-out build receives SIGTERM and, after 5 seconds, SIGKILL if needed, then reports `BUILD_TIMEOUT`. This limit is separate from `deploy --timeout` (deployment polling). If a build takes longer, run it separately and use `--prebuilt`.
 
@@ -71,7 +71,7 @@ The CLI detects the project the same way `cf` does before building:
 4. Run the build through the detected package manager, or invoke the framework command with `npx`/`pnpm exec`/`yarn`/`bunx` when there is no script.
 5. Normalize the framework output directory (`dist`, `build`, `out`, `public`, `.output/public`, and similar) to `dist/`.
 
-The detection result (framework, package manager, build command, output directory, and warnings) is included in the deploy JSON as `detection` (`data.detection` with explicit `--json`). Conflicting frameworks stop the build with `PREFLIGHT_MULTIPLE_FRAMEWORKS`.
+The detection result (framework, package manager, build command, output directory, and warnings) is included in the deploy JSON as `detection`. Conflicting frameworks stop the build with `PREFLIGHT_MULTIPLE_FRAMEWORKS`.
 
 When no framework or build script is found, the CLI prepares output according to the project type:
 
@@ -81,7 +81,7 @@ When no framework or build script is found, the CLI prepares output according to
 
 The deployment stops during preflight if `dist/index.html` (static) or `dist/server/index.js` (Worker) is missing.
 
-Use `--prebuilt` to skip detection-driven builds entirely and deploy the current `dist/` directory, matching `cf deploy --prebuilt`.
+Use `--prebuilt` to skip build execution and normalization and deploy the current `dist/` directory. Framework detection, dirty-tree checks and artifact validation still run.
 
 ## Archive
 
@@ -111,7 +111,7 @@ npx @hayatosc/sites status <deployment_id> --watch
 | `--interval <sec>` | Polling interval (default 3)        |
 | `--timeout <sec>`  | Wait timeout (default 300)          |
 
-A `failed` or `error` status exits with code 1 and prints `failure_message`.
+A `failed` or `error` status returns the status data, including `failure_message` when supplied, and exits 1.
 
 ## sites logs
 

@@ -68,14 +68,14 @@ test("versions list and rollback use the recorded access mode", async () => {
       env: { SITES_MCP_URL: mock.url },
     });
     assert.equal(listed.code, 0, listed.stderr);
-    assert.equal(JSON.parse(listed.stdout).data.items.length, 2);
+    assert.equal(JSON.parse(listed.stdout).items.length, 2);
 
     const rolled = await runCli(["versions", "rollback", "--previous", "--force"], {
       cwd: root,
       env: { SITES_MCP_URL: mock.url },
     });
     assert.equal(rolled.code, 0, rolled.stderr);
-    const data = JSON.parse(rolled.stdout).data;
+    const data = JSON.parse(rolled.stdout);
     assert.equal(data.version_id, "appgprj_1~appgver_1");
     assert.equal(data.deployment_id, "dep_1");
     assert.equal(callsNamed(mock.calls, "sites.deploy_private_site_version").length, 1);
@@ -103,8 +103,8 @@ test("env get refuses secrets and pull writes a 0600 file", async () => {
       cwd: root,
       env: { SITES_MCP_URL: mock.url },
     });
-    assert.equal(secret.code, 5);
-    assert.match(secret.stderr, /ENV_SECRET_NOT_READABLE/);
+    assert.equal(secret.code, 1);
+    assert.match(secret.stderr, /secret/i);
 
     const outFile = path.join(root, "pulled.env");
     const pulled = await runCli(["env", "pull", "--out", outFile], {
@@ -140,14 +140,14 @@ test("access set validates combinations and waits for propagation", async () => 
       cwd: root,
       env: { SITES_MCP_URL: mock.url },
     });
-    assert.equal(invalid.code, 5);
+    assert.equal(invalid.code, 1);
 
     const changed = await runCli(["access", "set", "--workspace", "--wait"], {
       cwd: root,
       env: { SITES_MCP_URL: mock.url, SITES_RETRY_BASE_MS: "1" },
     });
     assert.equal(changed.code, 0, changed.stderr);
-    assert.equal(JSON.parse(changed.stdout).data.access_mode, "workspace_all");
+    assert.equal(JSON.parse(changed.stdout).access_mode, "workspace_all");
     assert.deepEqual(callsNamed(mock.calls, "sites.update_site_access")[0].args, {
       project_id: "appgprj_1",
       access_mode: "workspace_all",
@@ -201,7 +201,7 @@ test("domains remove requires --force in non-interactive mode", async () => {
       cwd: root,
       env: { SITES_MCP_URL: mock.url },
     });
-    assert.equal(refused.code, 2);
+    assert.equal(refused.code, 1);
     assert.match(refused.stderr, /--force/);
 
     const removed = await runCli(["domains", "remove", "www.example.com", "--force", "--human"], {
@@ -270,7 +270,7 @@ test("delete requires --force and clears project_id", async () => {
   });
   try {
     const refused = await runCli(["delete"], { cwd: root, env: { SITES_MCP_URL: mock.url } });
-    assert.equal(refused.code, 2);
+    assert.equal(refused.code, 1);
     assert.match(refused.stderr, /--force/);
 
     const deleted = await runCli(["delete", "--force"], {
@@ -291,7 +291,7 @@ test("doctor --offline reports local checks without the API", async () => {
   fs.writeFileSync(path.join(root, "dist/index.html"), "<h1>ok</h1>");
   const result = await runCli(["doctor", "--offline"], { cwd: root });
   assert.equal(result.code, 0, result.stdout + result.stderr);
-  const report = JSON.parse(result.stdout).data;
+  const report = JSON.parse(result.stdout);
   assert.equal(report.failures, 0);
   assert.equal(report.checks.length, 12);
   assert.equal(report.checks.find((entry: { id: number }) => entry.id === 3).status, "skip");
@@ -306,13 +306,13 @@ test("doctor reports failures with exit 1", async () => {
   );
   const result = await runCli(["doctor", "--offline"], { cwd: root });
   assert.equal(result.code, 1);
-  assert.ok(JSON.parse(result.stdout).data.failures > 0);
+  assert.ok(JSON.parse(result.stdout).failures > 0);
 });
 
 test("cli search and docs search find entries", async () => {
   const cliResult = await runCli(["cli", "search", "deploy site"]);
   assert.equal(cliResult.code, 0, cliResult.stderr);
-  const hits = JSON.parse(cliResult.stdout).data;
+  const hits = JSON.parse(cliResult.stdout);
   assert.ok(Array.isArray(hits));
   assert.ok(hits.length <= 5);
   assert.equal(hits[0].command, "sites deploy");
@@ -320,7 +320,7 @@ test("cli search and docs search find entries", async () => {
 
   const docsResult = await runCli(["docs", "search", "commit_sha"]);
   assert.equal(docsResult.code, 0, docsResult.stderr);
-  assert.ok(Array.isArray(JSON.parse(docsResult.stdout).data));
+  assert.ok(Array.isArray(JSON.parse(docsResult.stdout)));
 });
 
 test("schema lists and filters MCP tools", async () => {
@@ -344,14 +344,14 @@ test("schema lists and filters MCP tools", async () => {
   try {
     const all = await runCli(["schema", "--list"], { env: { SITES_MCP_URL: mock.url } });
     assert.equal(all.code, 0, all.stderr);
-    assert.equal(JSON.parse(all.stdout).data.length, 2);
+    assert.equal(JSON.parse(all.stdout).length, 2);
 
     const missing = await runCli(["schema"], { env: { SITES_MCP_URL: mock.url } });
     assert.equal(missing.code, 1);
 
     const one = await runCli(["schema", "get_site"], { env: { SITES_MCP_URL: mock.url } });
     assert.equal(one.code, 0, one.stderr);
-    assert.equal(JSON.parse(one.stdout).data.name, "sites.get_site");
+    assert.equal(JSON.parse(one.stdout).name, "sites.get_site");
   } finally {
     await mock.close();
   }

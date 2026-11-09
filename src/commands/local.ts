@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os, { constants } from "node:os";
 import path from "node:path";
 import { spawnCommand } from "../subprocess.ts";
-import { flagArgumentEnd, GLOBAL_FLAGS } from "../args.ts";
+import { commandCompletions } from "../args.ts";
 import { dirtyFiles } from "../git.ts";
 import { buildSite } from "../build.ts";
 import { convertWranglerProject } from "../convert.ts";
@@ -14,32 +14,6 @@ import { inspectDist } from "../package-site.ts";
 import { detectProject, readPackageJson } from "../project-detect.ts";
 import { registerSignalHandler, stringListOption } from "../util.ts";
 import type { CommandDefinition, CommandResult, DefineCommand } from "../types.ts";
-
-function completions(words: string[], commands: CommandDefinition[]): string[] {
-  const prefix = words.at(-1) ?? "";
-  const parents: string[] = [];
-  for (let index = 0; index < words.length - 1; index++) {
-    const token = words[index];
-    if (token === "--") return [];
-    if (token.startsWith("-") && token !== "-") {
-      index = flagArgumentEnd(words, index);
-      // The current word is a flag value, not a command or another option.
-      if (index === words.length - 1) return [];
-    } else parents.push(token);
-  }
-  const visible = commands.filter((command) => !command.hidden);
-  const command = visible.find((candidate) =>
-    candidate.path.every((part, index) => parents[index] === part),
-  );
-  const choices =
-    prefix.startsWith("-") || command
-      ? [...new Set([...GLOBAL_FLAGS, ...(command?.flags ?? [])])].map((flag) => `--${flag}`)
-      : visible
-          .filter((candidate) => parents.every((part, index) => candidate.path[index] === part))
-          .map((candidate) => candidate.path[parents.length])
-          .filter((part): part is string => Boolean(part));
-  return [...new Set(choices)].filter((choice) => choice.startsWith(prefix)).sort();
-}
 
 const COMPLETION_SCRIPTS: Record<string, string> = {
   bash: `_sites_complete() {
@@ -169,7 +143,11 @@ export function registerLocalCommands(define: DefineCommand, commands: CommandDe
       } finally {
         unregister();
       }
-      return { data: { command: manager, exit_code: code }, raw: "", exitCode: code };
+      return {
+        data: { command: manager, exit_code: code },
+        raw: "",
+        exitCode: forwardedSignal ? EXIT.INTERRUPT : code,
+      };
     },
   });
 
@@ -238,7 +216,7 @@ export function registerLocalCommands(define: DefineCommand, commands: CommandDe
           });
         return { data: { shell: detected }, raw: COMPLETION_SCRIPTS[detected] };
       }
-      const candidates = completions(ctx.positionals, commands);
+      const candidates = commandCompletions(ctx.positionals, commands);
       return { data: candidates, raw: candidates.length ? candidates.join("\n") + "\n" : "" };
     },
   });

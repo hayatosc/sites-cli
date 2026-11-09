@@ -59,7 +59,7 @@ test("migration numbering only considers the matching pattern, numerically rathe
     { cwd: root, env: offline(root) },
   );
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).data.name, "0011_next.sql");
+  assert.equal(JSON.parse(result.stdout).name, "0011_next.sql");
   assert.equal(fs.readFileSync(path.join(root, "sql/0010_new.sql"), "utf8"), "-- retained\n");
 });
 
@@ -75,7 +75,7 @@ test("migration glob matching and quiet work without Node 22's experimental matc
     const args = ["migrations", "create", "next", "--dir", "sql", "--pattern", "sql/????_*.sql"];
     const result = await runCli(args, { cwd: root, env: offline(root) });
     assert.equal(result.code, 0, result.stderr);
-    assert.equal(JSON.parse(result.stdout).data.name, "0013_next.sql");
+    assert.equal(JSON.parse(result.stdout).name, "0013_next.sql");
     const quiet = await runCli([...args, "--quiet"], { cwd: root, env: offline(root) });
     assert.equal(quiet.code, 0);
     assert.equal(quiet.stdout + quiet.stderr, "");
@@ -90,7 +90,7 @@ for (const name of ["../escape", "nested\\escape", "bad:stream", "bad?file", "",
   test(`migration name ${JSON.stringify(name)} is rejected before creating directories`, async () => {
     const root = tempDir();
     const result = await runCli(["migrations", "create", name], { cwd: root, env: offline(root) });
-    assert.equal(result.code, 2, result.stderr);
+    assert.equal(result.code, 1, result.stderr);
     assert.deepEqual(fs.readdirSync(root), []);
   });
 
@@ -115,8 +115,8 @@ for (const flags of [
       cwd: root,
       env: offline(root),
     });
-    assert.equal(result.code, 2, result.stderr);
-    assert.match(result.stderr, /USAGE_MIGRATION_PATTERN/);
+    assert.equal(result.code, 1, result.stderr);
+    assert.match(result.stderr, /^Error: /);
     assert.deepEqual(fs.readdirSync(root), []);
   });
 
@@ -134,7 +134,7 @@ test("migration limited wildcards handle retries, literals, Unicode and ignore s
       { cwd: root, env: offline(root) },
     );
     assert.equal(result.code, 0, result.stderr);
-    assert.equal(JSON.parse(result.stdout).data.name, "0011_next.sql");
+    assert.equal(JSON.parse(result.stdout).name, "0011_next.sql");
   }
   const root = tempDir();
   const result = await runCli(
@@ -142,7 +142,7 @@ test("migration limited wildcards handle retries, literals, Unicode and ignore s
     { cwd: root, env: offline(root) },
   );
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).data.name, "0001_😀.sql");
+  assert.equal(JSON.parse(result.stdout).name, "0001_😀.sql");
 });
 
 test("migration dry-run is argument-only, secret-safe and quiet; local types are generated offline", async () => {
@@ -176,15 +176,15 @@ test("migration dry-run is argument-only, secret-safe and quiet; local types are
 test("types rejects unsupported runtime generation, duplicate bindings and manual-file replacement", async () => {
   const root = tempDir();
   writeManifest(root, { project_id: null, d1: "DB", r2: "DB" });
-  assert.equal((await runCli(["types"], { cwd: root, env: offline(root) })).code, 2);
+  assert.equal((await runCli(["types"], { cwd: root, env: offline(root) })).code, 1);
   writeManifest(root, { project_id: null, d1: "DB" });
   assert.equal(
     (await runCli(["types", "--include-runtime"], { cwd: root, env: offline(root) })).code,
-    2,
+    1,
   );
   fs.writeFileSync(path.join(root, ".openai/types.d.ts"), "// handwritten\n");
   const denied = await runCli(["types"], { cwd: root, env: offline(root) });
-  assert.equal(denied.code, 6, denied.stderr);
+  assert.equal(denied.code, 1, denied.stderr);
   assert.equal(fs.readFileSync(path.join(root, ".openai/types.d.ts"), "utf8"), "// handwritten\n");
   assert.equal(
     (
@@ -202,8 +202,8 @@ for (const flag of ["--temporary-account", "--event-code=fixture-shared-event-se
   test(`${flag.split("=")[0]} is explicitly unsupported without leaking values or accessing credentials`, async () => {
     const root = tempDir();
     const result = await runCli(["auth", "whoami", flag], { cwd: root, env: offline(root) });
-    assert.equal(result.code, 2);
-    assert.equal(JSON.parse(result.stderr).error.code, "USAGE_UNSUPPORTED_FLAG");
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /not supported/);
     assert.doesNotMatch(result.stderr, /fixture-shared-event-secret/);
     assert.deepEqual(fs.readdirSync(root), []);
   });
@@ -322,11 +322,7 @@ for (const verb of ["dev", "build"]) {
             child.kill(signal);
             const result = await closed;
             assert.equal(result.signal, null, stderr);
-            assert.equal(
-              result.code,
-              graceful ? handledCode : signal === "SIGINT" ? 130 : 143,
-              stderr,
-            );
+            assert.equal(result.code, 130, stderr);
             if (graceful) {
               assert.match(stdout + stderr, new RegExp(`received:${signal}`));
               assert.match(stdout + stderr, /shutdown-complete/);
@@ -392,7 +388,7 @@ for (const verb of ["dev", "build"]) {
   }
 }
 
-test("build keeps child exit 7 in default and structured modes, with progress only on stderr", async () => {
+test("build normalizes child failure to exit 1 with progress only on stderr", async () => {
   const root = tempDir();
   writeManifest(root, { project_id: null, static: { directory: "../dist" } });
   fs.writeFileSync(
@@ -405,11 +401,11 @@ test("build keeps child exit 7 in default and structured modes, with progress on
   );
   for (const defaultOutput of [false, true]) {
     const result = await runCli(["build"], { cwd: root, env: offline(root), defaultOutput });
-    assert.equal(result.code, 7, result.stderr);
+    assert.equal(result.code, 1, result.stderr);
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /build-progress/);
     assert.match(result.stderr, /build-error/);
-    assert.match(result.stderr, defaultOutput ? /Error:/ : /BUILD_FAILED/);
+    assert.match(result.stderr, /Error:/);
   }
 });
 
