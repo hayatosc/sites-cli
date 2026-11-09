@@ -9,7 +9,7 @@ import { CliError, EXIT, usageError } from "../errors.ts";
 import { booleanOption, stringOption } from "../util.ts";
 import { readEnvFile } from "../env-file.ts";
 import { confirmDestructive } from "../prompt.ts";
-import { renderTable } from "../output.ts";
+import { outputStyle, renderTable } from "../output.ts";
 
 const KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -84,20 +84,22 @@ export function registerEnvCommands(define: DefineCommand): void {
       return {
         data: { project_id: projectId, revision: environment.revision ?? null, entries },
         human: (value) => {
+          const style = outputStyle(ctx);
           if (!value.entries.length) {
-            ctx.stdout.write("No environment variables.\n");
+            ctx.stdout.write(style.dim("No environment variables.") + "\n");
             return;
           }
           renderTable(
             ctx.stdout,
-            ["KEY", "TYPE", "VALUE"],
+            ["KEY", "TYPE", "VALUE"].map(style.heading),
             value.entries.map((entry) => [
-              entry.key,
-              entry.is_secret ? "secret" : entry.type,
-              entry.is_secret ? "(secret)" : (entry.value ?? ""),
+              style.label(entry.key),
+              style.dim(entry.is_secret ? "secret" : entry.type),
+              entry.is_secret ? style.dim("(secret)") : style.value(entry.value ?? ""),
             ]),
           );
-          if (value.revision !== null) ctx.stdout.write(`revision: ${value.revision}\n`);
+          if (value.revision !== null)
+            ctx.stdout.write(style.dim(`revision: ${value.revision}`) + "\n");
         },
       };
     },
@@ -141,7 +143,7 @@ export function registerEnvCommands(define: DefineCommand): void {
           type: entry.type ?? "envvar",
         },
         human: (value) => {
-          ctx.stdout.write(`${value.value ?? ""}\n`);
+          ctx.stdout.write(outputStyle(ctx).value(value.value ?? "") + "\n");
         },
       };
     },
@@ -173,8 +175,9 @@ export function registerEnvCommands(define: DefineCommand): void {
           type: "envvar",
         },
         human: (value) => {
+          const style = outputStyle(ctx);
           ctx.stdout.write(
-            `Set ${value.key}${value.is_secret ? " (secret)" : ""}. It will apply on the next deploy.\n`,
+            `${style.success("Set")} ${style.label(value.key)}${value.is_secret ? style.dim(" (secret)") : ""}. ${style.dim("It will apply on the next deploy.")}\n`,
           );
         },
       };
@@ -210,7 +213,10 @@ export function registerEnvCommands(define: DefineCommand): void {
       return {
         data: { project_id: projectId, removed: key },
         human: (value) => {
-          ctx.stdout.write(`Removed ${value.removed}. It will apply on the next deploy.\n`);
+          const style = outputStyle(ctx);
+          ctx.stdout.write(
+            `${style.success("Removed")} ${style.label(value.removed)}. ${style.dim("It will apply on the next deploy.")}\n`,
+          );
         },
       };
     },
@@ -264,10 +270,15 @@ export function registerEnvCommands(define: DefineCommand): void {
           secrets_skipped: secretsSkipped,
         },
         human: (value) => {
-          ctx.stdout.write(`Wrote ${value.keys.length} keys to ${value.out}.\n`);
+          const style = outputStyle(ctx);
+          ctx.stdout.write(
+            `${style.success("Wrote")} ${value.keys.length} keys to ${style.id(value.out)}.\n`,
+          );
           if (value.secrets_skipped) {
             ctx.stdout.write(
-              `Left ${value.secrets_skipped} secret values as comments because they cannot be read back.\n`,
+              style.warn(
+                `Left ${value.secrets_skipped} secret values as comments because they cannot be read back.`,
+              ) + "\n",
             );
           }
         },
@@ -301,11 +312,14 @@ export function registerEnvCommands(define: DefineCommand): void {
       return {
         data: { project_id: projectId, keys: entries.map((entry) => entry.key), dry_run: dryRun },
         human: (value) => {
+          const style = outputStyle(ctx);
           if (value.dry_run) {
-            ctx.stdout.write(`Dry run: would update ${value.keys.length} keys.\n`);
+            ctx.stdout.write(
+              `${style.label("Dry run:")} would update ${value.keys.length} keys.\n`,
+            );
           } else {
             ctx.stdout.write(
-              `Updated ${value.keys.length} keys. They will apply on the next deploy.\n`,
+              `${style.success("Updated")} ${value.keys.length} keys. ${style.dim("They will apply on the next deploy.")}\n`,
             );
           }
         },

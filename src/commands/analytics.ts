@@ -2,6 +2,7 @@
 
 import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
 import type { AnalyticsOverview } from "../api-types.ts";
+import { outputStyle } from "../output.ts";
 import { resolveProjectRef } from "../manifest.ts";
 import { usageError } from "../errors.ts";
 import { stringOption, stringifyJson, textValue } from "../util.ts";
@@ -88,7 +89,11 @@ export function registerAnalyticsCommands(define: DefineCommand): void {
       return {
         data: { project_id: projectId, ...window, view: view ?? null, overview },
         human: (value) => {
-          ctx.stdout.write(stringifyJson(value.overview) + "\n");
+          const style = outputStyle(ctx);
+          ctx.stdout.write(style.heading("Analytics overview") + "\n");
+          for (const [key, data] of Object.entries(value.overview)) {
+            ctx.stdout.write(`${style.label(`${key}:`)} ${style.value(stringifyJson(data))}\n`);
+          }
         },
       };
     },
@@ -113,13 +118,14 @@ export function registerAnalyticsCommands(define: DefineCommand): void {
       return {
         data: { project_id: projectId, ...window, events },
         human: (value) => {
+          const style = outputStyle(ctx);
           if (!value.events.length) {
-            ctx.stdout.write("No events.\n");
+            ctx.stdout.write(style.dim("No events.") + "\n");
             return;
           }
           for (const event of value.events) {
             ctx.stdout.write(
-              `${textValue(event.timestamp ?? event.event_time)}  ${JSON.stringify(event)}\n`,
+              `${style.dim(textValue(event.timestamp ?? event.event_time))}  ${JSON.stringify(event)}\n`,
             );
           }
         },

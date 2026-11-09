@@ -63,7 +63,7 @@ export async function main(
           { hint: command.usage },
         );
       }
-      color = colorEnabled(stderr, values, env);
+      color = Boolean(values.human) && colorEnabled(stderr, values, env);
       const style = createStyle(color);
       if (values.profile)
         throw usageError(
@@ -91,7 +91,8 @@ export async function main(
           if (!quiet) stderr.write(style.heading(text) + "\n");
         },
         detail: (text) => {
-          if (!quiet) stderr.write(style.dim(text) + "\n");
+          if (!quiet)
+            stderr.write((/^warning:/i.test(text) ? style.warn(text) : style.dim(text)) + "\n");
         },
         success: (text) => {
           if (!quiet && (stderr.isTTY || values.human))
@@ -123,9 +124,9 @@ export async function main(
           if (name !== "help" && name !== "version") ctx.addGlobalOption(name, flagSchema(name));
       },
     });
-    const input = resolveArgs(OPTION_SCHEMAS, parseArgs(prepared.argv)).positionals.length
-      ? prepared.argv
-      : [...prepared.argv, "--help"];
+    const resolved = resolveArgs(OPTION_SCHEMAS, parseArgs(prepared.argv));
+    color = Boolean(resolved.values.human) && colorEnabled(stderr, resolved.values, env);
+    const input = resolved.positionals.length ? prepared.argv : [...prepared.argv, "--help"];
     const rendered = await cli(
       input,
       define({
@@ -145,7 +146,14 @@ export async function main(
       },
     );
     if (typeof rendered === "string")
-      stdout.write((input.includes("--version") ? rendered : decorateHelp(rendered)) + "\n");
+      stdout.write(
+        (input.includes("--version")
+          ? rendered
+          : decorateHelp(
+              rendered,
+              Boolean(resolved.values.human) && colorEnabled(stdout, resolved.values, env),
+            )) + "\n",
+      );
     return exitCode;
   } catch (error) {
     if (error instanceof CommandExit) return EXIT.INTERRUPT;

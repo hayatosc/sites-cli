@@ -6,8 +6,7 @@ import { readManifest, readState } from "../manifest.ts";
 import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
 import type { DeploymentRecord, WorkerLogsResult } from "../api-types.ts";
 import { integerOption } from "../args.ts";
-import { colorEnabled } from "../output.ts";
-import { createStyle } from "../style.ts";
+import { outputStyle } from "../output.ts";
 import { registerCleanup, sleep } from "../util.ts";
 
 const ACTIVE = new Set(["pending", "publishing", "building"]);
@@ -109,18 +108,18 @@ export function registerDeployCommands(define: DefineCommand): void {
       return {
         data,
         human: (value) => {
+          const style = outputStyle(ctx);
           if (value.dry_run) {
-            ctx.stdout.write(`Dry run OK (${value.kind ?? "site"}).\n`);
+            ctx.stdout.write(`${style.success("Dry run OK")} (${value.kind ?? "site"}).\n`);
             return;
           }
-          const style = createStyle(colorEnabled(ctx.stdout, ctx.options, ctx.env));
           const lines = [
-            `Deployed ${value.project_id}`,
-            `URL: ${value.url ? style.url(value.url) : "(pending)"}`,
-            `Version: ${value.version_number ?? "-"} (${value.version_id ?? "-"})`,
-            `Deployment: ${value.deployment_id ?? "-"} ${value.status}`,
+            `${style.success("Deployed")} ${style.id(value.project_id)}`,
+            `${style.label("URL:")} ${value.url ? style.url(value.url) : style.dim("(pending)")}`,
+            `${style.label("Version:")} ${value.version_number ?? "-"} (${style.id(value.version_id ?? "-")})`,
+            `${style.label("Deployment:")} ${style.id(value.deployment_id ?? "-")} ${style.status(value.status)}`,
           ];
-          if (value.access_mode) lines.push(`Access: ${value.access_mode}`);
+          if (value.access_mode) lines.push(`${style.label("Access:")} ${value.access_mode}`);
           ctx.stdout.write(lines.join("\n") + "\n");
         },
       };
@@ -159,7 +158,7 @@ export function registerDeployCommands(define: DefineCommand): void {
             details: { deployment_id: deploymentId, status: current.status },
           });
         }
-        ctx.log(current.status);
+        ctx.log(outputStyle(ctx, ctx.stderr).status(current.status));
         await sleep(Math.min(interval * 1000, Math.max(0, deadline - Date.now())));
         current = toStatus(
           await ctx.mcp().callTool<DeploymentRecord>("sites.get_deployment_status", {
@@ -173,10 +172,12 @@ export function registerDeployCommands(define: DefineCommand): void {
         data: current,
         ...(failed ? { exitCode: EXIT.GENERAL } : {}),
         human: (value) => {
-          ctx.stdout.write(`Deployment: ${value.deployment_id}\n`);
-          ctx.stdout.write(`Status: ${value.status}\n`);
-          if (value.url) ctx.stdout.write(`URL: ${value.url}\n`);
-          if (value.failure_message) ctx.stdout.write(`Failure: ${value.failure_message}\n`);
+          const style = outputStyle(ctx);
+          ctx.stdout.write(`${style.label("Deployment:")} ${style.id(value.deployment_id)}\n`);
+          ctx.stdout.write(`${style.label("Status:")} ${style.status(value.status)}\n`);
+          if (value.url) ctx.stdout.write(`${style.label("URL:")} ${style.url(value.url)}\n`);
+          if (value.failure_message)
+            ctx.stdout.write(`${style.error("Failure:")} ${style.error(value.failure_message)}\n`);
         },
       };
     },
@@ -206,6 +207,7 @@ export function registerDeployCommands(define: DefineCommand): void {
         registerCleanup(() => {
           stopped = true;
         });
+      const style = outputStyle(ctx);
       const events: LogEvent[] = [];
       const seen = new Set<string>();
 
@@ -229,7 +231,7 @@ export function registerDeployCommands(define: DefineCommand): void {
           if (ctx.json && follow) ctx.stdout.write(JSON.stringify(event) + "\n");
           if (!ctx.json) {
             ctx.stdout.write(
-              `${event.timestamp ?? "-"} ${event.level ?? "info"} ${messageOf(event)}\n`,
+              `${style.dim(event.timestamp ?? "-")} ${style.status(event.level ?? "info")} ${messageOf(event)}\n`,
             );
           }
         }
@@ -247,7 +249,7 @@ export function registerDeployCommands(define: DefineCommand): void {
           } catch (error) {
             if (error instanceof CliError && error.code === "RATE_LIMITED") {
               interval = Math.min(interval * 2, 60_000);
-              ctx.log(`rate limited; polling again in ${Math.round(interval / 1000)}s`);
+              ctx.detail(`warning: rate limited; polling again in ${Math.round(interval / 1000)}s`);
               continue;
             }
             throw error;
@@ -259,7 +261,7 @@ export function registerDeployCommands(define: DefineCommand): void {
         data: { events, errors_only: errorsOnly },
         ...(follow ? { raw: "" } : {}),
         human: (value) => {
-          if (!value.events.length) ctx.stdout.write("No log events.\n");
+          if (!value.events.length) ctx.stdout.write(style.dim("No log events.") + "\n");
         },
       };
     },

@@ -16,13 +16,14 @@ test("shared palette uses semantic ANSI codes only when enabled", () => {
     success: "32",
     ok: "32",
     warn: "33",
-    error: "31",
+    error: "31;1",
     url: "36;4",
   } as const;
   for (const enabled of [true, false]) {
     const style = createStyle(enabled);
     for (const name of Object.keys(codes) as Array<keyof typeof codes>) {
       const code = codes[name];
+      assert.equal(style[name](""), "", `${name} must not add invisible cells`);
       assert.equal(
         style[name]("text"),
         enabled && code ? `\u001b[${code}mtext\u001b[0m` : "text",
@@ -35,9 +36,23 @@ test("shared palette uses semantic ANSI codes only when enabled", () => {
 
 test("status palette preserves text and colors recognized states", () => {
   for (const [states, code] of [
-    [["live", "ready", "success", "succeeded", "ok"], "32"],
-    [["pending", "building", "waiting"], "33"],
-    [["failed", "error", "deleted"], "31"],
+    [["live", "ready", "success", "succeeded", "ok", "active", "active_redeploying"], "32"],
+    [
+      [
+        "pending",
+        "building",
+        "waiting",
+        "warn",
+        "warning",
+        "pending_validation",
+        "pending_dns",
+        "pending_certificate",
+        "initializing",
+        "publishing",
+      ],
+      "33",
+    ],
+    [["failed", "error", "deleted", "fail", "fatal", "blocked", "expired"], "31;1"],
   ] as const) {
     for (const state of states) {
       assert.equal(createStyle(true).status(state), `\u001b[${code}m${state}\u001b[0m`);
@@ -103,7 +118,11 @@ test("shared error renderer uses the palette without coloring plain output", () 
       stripVTControlCharacters(output),
       "Error: broken\n  hint: retry\n  docs: https://example.test\n",
     );
-    assert.ok(output.startsWith(color ? "\u001b[31mError: \u001b[0m" : "Error: "));
+    assert.ok(output.startsWith(color ? "\u001b[31;1mError: \u001b[0m" : "Error: "));
+    if (color) {
+      assert.ok(output.includes("\u001b[2mhint: retry\u001b[0m"));
+      assert.ok(output.includes("\u001b[2mdocs: https://example.test\u001b[0m"));
+    }
   }
 });
 

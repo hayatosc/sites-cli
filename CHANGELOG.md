@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Colored human progress steps, green success markers and final deploy URLs, and dimmed progress details.
+- Shared colors across all human-readable command output: headings and labels, dimmed IDs and details, state-aware statuses, success and warning markers, and underlined cyan URLs; colored tables remain aligned.
+- Human-mode help section headings use the shared palette while Gunshi continues to own help content and layout.
 - `FORCE_COLOR` support for non-interactive recordings, with `--no-color` and `NO_COLOR` taking precedence.
 
 ### Fixed

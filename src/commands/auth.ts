@@ -3,6 +3,7 @@
 // The shape follows the cf CLI: an unauthenticated invocation is a successful
 // result that reports `authenticated: false`, rather than an error.
 
+import { outputStyle } from "../output.ts";
 import { isExpired } from "../auth.ts";
 import type { Identity } from "../auth.ts";
 import { CliError } from "../errors.ts";
@@ -63,8 +64,9 @@ export function registerAuthCommands(define: DefineCommand): void {
         return {
           data,
           human: (value) => {
-            ctx.stdout.write(`${value.error}\n`);
-            ctx.stdout.write("Run `codex login` to sign in.\n");
+            const style = outputStyle(ctx);
+            ctx.stdout.write(style.warn(value.error ?? "Not logged in") + "\n");
+            ctx.stdout.write(style.dim("Run `codex login` to sign in.") + "\n");
           },
         };
       }
@@ -77,17 +79,21 @@ export function registerAuthCommands(define: DefineCommand): void {
       return {
         data,
         human: (value) => {
+          const style = outputStyle(ctx);
           if (!value.authenticated) {
-            ctx.stdout.write(`${value.error}\n`);
+            ctx.stdout.write(style.warn(value.error ?? "Not logged in") + "\n");
             return;
           }
           const lines = [
-            `Authenticated: ${value.tokenValid ? "yes" : "no (expired)"}`,
-            `Auth source: ${value.authSource}`,
-            `Account: ${value.accountId ?? "unknown"}`,
-            `Expires: ${formatJst(value.expiresAt)}`,
+            `${style.label("Authenticated:")} ${value.tokenValid ? style.ok("yes") : style.warn("no (expired)")}`,
+            `${style.label("Auth source:")} ${style.dim(value.authSource)}`,
+            `${style.label("Account:")} ${style.id(value.accountId ?? "unknown")}`,
+            `${style.label("Expires:")} ${style.dim(formatJst(value.expiresAt))}`,
           ];
-          if (value.server) lines.push(`Server: ${value.server.name} ${value.server.version}`);
+          if (value.server)
+            lines.push(
+              `${style.label("Server:")} ${value.server.name} ${style.dim(value.server.version ?? "")}`,
+            );
           ctx.stdout.write(lines.join("\n") + "\n");
         },
       };

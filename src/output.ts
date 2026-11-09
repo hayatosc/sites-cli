@@ -2,7 +2,7 @@
 
 import { CliError } from "./errors.ts";
 import { createStyle, padEndVisible, visibleWidth } from "./style.ts";
-import type { Env, OutputStream } from "./types.ts";
+import type { CommandContext, Env, OutputStream } from "./types.ts";
 
 export function colorEnabled(
   stream: OutputStream,
@@ -12,6 +12,10 @@ export function colorEnabled(
   if (options["no-color"] || env.NO_COLOR !== undefined) return false;
   if (env.FORCE_COLOR !== undefined) return env.FORCE_COLOR !== "0";
   return Boolean(stream.isTTY);
+}
+
+export function outputStyle(ctx: CommandContext, stream: OutputStream = ctx.stdout) {
+  return createStyle(!ctx.json && colorEnabled(stream, ctx.options, ctx.env));
 }
 
 export function renderTable(stream: OutputStream, header: string[], rows: string[][]): void {
@@ -34,6 +38,6 @@ export interface ErrorRenderOptions {
 export function printError(error: CliError, { stderr, color = false }: ErrorRenderOptions): void {
   const style = createStyle(color);
   stderr.write(style.error("Error: ") + error.message + "\n");
-  if (error.hint) stderr.write(`  ${style.label("hint:")} ${error.hint}\n`);
-  if (error.docs) stderr.write(`  ${style.label("docs:")} ${style.url(error.docs)}\n`);
+  if (error.hint) stderr.write(`  ${style.dim(`hint: ${error.hint}`)}\n`);
+  if (error.docs) stderr.write(`  ${style.dim(`docs: ${error.docs}`)}\n`);
 }

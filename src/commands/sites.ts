@@ -13,7 +13,7 @@ import { resolveProjectRef } from "../manifest.ts";
 import { CliError, usageError } from "../errors.ts";
 import { integerOption } from "../args.ts";
 import { stringOption } from "../util.ts";
-import { renderTable } from "../output.ts";
+import { outputStyle, renderTable } from "../output.ts";
 
 interface ListedSite {
   project_id?: string;
@@ -99,18 +99,19 @@ export function registerSiteCommands(define: DefineCommand): void {
       return {
         data: { items, cursor: lastCursor },
         human: (value) => {
+          const style = outputStyle(ctx);
           if (!value.items.length) {
-            ctx.stdout.write("No sites.\n");
+            ctx.stdout.write(style.dim("No sites.") + "\n");
             return;
           }
           renderTable(
             ctx.stdout,
-            ["SLUG", "PROJECT_ID", "ACCESS", "UPDATED"],
+            ["SLUG", "PROJECT_ID", "ACCESS", "UPDATED"].map(style.heading),
             value.items.map((item) => [
               item.slug ?? "",
-              item.project_id ?? "",
+              style.id(item.project_id ?? ""),
               item.access_mode ?? "",
-              item.updated_at ?? "",
+              style.dim(item.updated_at ?? ""),
             ]),
           );
         },
@@ -165,16 +166,17 @@ export function registerSiteCommands(define: DefineCommand): void {
       return {
         data,
         human: (value) => {
+          const style = outputStyle(ctx);
           const lines = [
-            `Site: ${value.title ?? value.slug} (${value.slug})`,
-            `ID: ${value.project_id}`,
-            `URL: ${value.url ?? "not deployed"}`,
-            `Access: ${value.access_mode ?? "unknown"}`,
-            `Latest version: ${value.latest_version_number ?? "-"}`,
+            `${style.label("Site:")} ${value.title ?? value.slug} (${value.slug})`,
+            `${style.label("ID:")} ${style.id(value.project_id ?? "-")}`,
+            `${style.label("URL:")} ${value.url ? style.url(value.url) : style.dim("not deployed")}`,
+            `${style.label("Access:")} ${value.access_mode ?? "unknown"}`,
+            `${style.label("Latest version:")} ${value.latest_version_number ?? "-"}`,
           ];
           if (value.custom_domains.length) {
             lines.push(
-              `Custom domains: ${value.custom_domains.map((d) => `${d.hostname ?? ""} (${d.status ?? ""})`).join(", ")}`,
+              `${style.label("Custom domains:")} ${value.custom_domains.map((d) => `${d.hostname ?? ""} (${style.status(d.status ?? "")})`).join(", ")}`,
             );
           }
           ctx.stdout.write(lines.join("\n") + "\n");

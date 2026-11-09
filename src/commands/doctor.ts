@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { outputStyle } from "../output.ts";
 import type { CommandResult, DefineCommand } from "../types.ts";
 import type { DeploymentRecord, SiteRecord } from "../api-types.ts";
 import { authFilePath, decodeJwtExpiry } from "../auth.ts";
@@ -315,6 +316,7 @@ export function registerDoctorCommands(define: DefineCommand): void {
         data: { checks, failures, warnings, offline },
         exitCode: failures ? 1 : 0,
         human: (value) => {
+          const style = outputStyle(ctx);
           for (const entry of value.checks) {
             const mark =
               entry.status === "ok"
@@ -324,11 +326,21 @@ export function registerDoctorCommands(define: DefineCommand): void {
                   : entry.status === "skip"
                     ? "-"
                     : "✗";
+            const paint =
+              entry.status === "ok"
+                ? style.ok
+                : entry.status === "warn"
+                  ? style.warn
+                  : entry.status === "skip"
+                    ? style.dim
+                    : style.error;
             ctx.stdout.write(
-              `${mark} ${String(entry.id).padStart(2)} ${entry.name}${ctx.options.verbose || entry.status !== "ok" ? `: ${entry.detail}` : ""}\n`,
+              `${paint(mark)} ${style.id(String(entry.id).padStart(2))} ${style.label(entry.name)}${ctx.options.verbose || entry.status !== "ok" ? `: ${style.dim(entry.detail)}` : ""}\n`,
             );
           }
-          ctx.stdout.write(`${value.failures} failure(s), ${value.warnings} warning(s)\n`);
+          ctx.stdout.write(
+            `${(value.failures ? style.error : style.ok)(`${value.failures} failure(s)`)}, ${(value.warnings ? style.warn : style.dim)(`${value.warnings} warning(s)`)}\n`,
+          );
         },
       };
     },

@@ -1,6 +1,7 @@
 // `sites open` and `sites delete` (plan §4).
 
 import { spawnCommand } from "../subprocess.ts";
+import { outputStyle } from "../output.ts";
 import type { CommandResult, DefineCommand } from "../types.ts";
 import type { SiteRecord } from "../api-types.ts";
 import { readManifest, resolveProjectRef, writeManifest, writeState } from "../manifest.ts";
@@ -82,9 +83,9 @@ export function registerOpenDeleteCommands(define: DefineCommand): void {
         });
       return {
         data: { project_id: projectId, url, opened, printed },
-        raw: printed ? url + "\n" : undefined,
+        raw: printed && ctx.json ? url + "\n" : undefined,
         human: (value) => {
-          ctx.stdout.write(value.url + "\n");
+          ctx.stdout.write(outputStyle(ctx).url(value.url) + "\n");
         },
       };
     },
@@ -128,8 +129,9 @@ export function registerOpenDeleteCommands(define: DefineCommand): void {
           was_deleted: Boolean(result.was_deleted),
         },
         human: (value) => {
+          const style = outputStyle(ctx);
           ctx.stdout.write(
-            `${value.was_deleted ? "Deleted" : "Not deleted:"} ${value.project_id}.\n`,
+            `${value.was_deleted ? style.success("Deleted") : style.warn("Not deleted:")} ${style.id(value.project_id)}.\n`,
           );
         },
       };

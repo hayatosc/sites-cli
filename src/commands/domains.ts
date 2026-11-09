@@ -6,6 +6,7 @@ import { resolveProjectRef } from "../manifest.ts";
 import { CliError, EXIT, usageError } from "../errors.ts";
 import { integerOption } from "../args.ts";
 import { sleep, textValue } from "../util.ts";
+import { outputStyle } from "../output.ts";
 import { confirmDestructive } from "../prompt.ts";
 
 const HOSTNAME_PATTERN = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -88,17 +89,22 @@ function domainData(projectId: string, domain: CustomDomainRecord): DomainData {
 }
 
 function renderDomainInstructions(ctx: CommandContext, value: DomainData): void {
+  const style = outputStyle(ctx);
   const hostname = textValue(value.domain.hostname);
-  ctx.stdout.write(`${hostname}: ${textValue(value.domain.status, "unknown")}\n`);
+  ctx.stdout.write(
+    `${style.heading(hostname)}: ${style.status(textValue(value.domain.status, "unknown"))}\n`,
+  );
   if (!value.dns) return;
   if (value.dns.cname_target) {
-    ctx.stdout.write(`CNAME  ${hostname}  ${value.dns.cname_target}  (proxied)\n`);
+    ctx.stdout.write(
+      `${style.label("CNAME")}  ${hostname}  ${value.dns.cname_target}  ${style.dim("(proxied)")}\n`,
+    );
   }
   for (const address of value.dns.apex_ipv4_targets) {
-    ctx.stdout.write(`A      ${hostname}  ${address}\n`);
+    ctx.stdout.write(`${style.label("A")}      ${hostname}  ${address}\n`);
   }
   for (const record of value.dns.validation_records) {
-    ctx.stdout.write(`TXT    ${record.name ?? ""}  ${record.value ?? ""}\n`);
+    ctx.stdout.write(`${style.label("TXT")}    ${record.name ?? ""}  ${record.value ?? ""}\n`);
   }
 }
 
@@ -158,7 +164,9 @@ export function registerDomainCommands(define: DefineCommand): void {
         human: (value) => {
           renderDomainInstructions(ctx, value);
           ctx.stdout.write(
-            "Create the DNS records, then run `sites domains refresh <hostname>` to verify.\n",
+            outputStyle(ctx).dim(
+              "Create the DNS records, then run `sites domains refresh <hostname>` to verify.",
+            ) + "\n",
           );
         },
       };
@@ -182,13 +190,14 @@ export function registerDomainCommands(define: DefineCommand): void {
       return {
         data: { project_id: projectId, items },
         human: (value) => {
+          const style = outputStyle(ctx);
           if (!value.items.length) {
-            ctx.stdout.write("No custom domains.\n");
+            ctx.stdout.write(style.dim("No custom domains.") + "\n");
             return;
           }
           for (const item of value.items) {
             ctx.stdout.write(
-              `${item.hostname ?? ""}  ${item.status ?? ""}  ${item.ssl_status ?? ""}  ${item.id ?? ""}\n`,
+              `${style.heading(item.hostname ?? "")}  ${style.status(item.status ?? "")}  ${style.status(item.ssl_status ?? "")}  ${style.id(item.id ?? "")}\n`,
             );
           }
         },
@@ -265,7 +274,7 @@ export function registerDomainCommands(define: DefineCommand): void {
           domain: removed as Record<string, unknown>,
         },
         human: (value) => {
-          ctx.stdout.write(`Removed ${value.removed}.\n`);
+          ctx.stdout.write(`${outputStyle(ctx).success("Removed")} ${value.removed}.\n`);
         },
       };
     },

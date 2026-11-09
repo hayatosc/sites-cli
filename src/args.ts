@@ -2,6 +2,7 @@
 
 import { parseArgs, resolveArgs, type ArgSchema, type Args } from "gunshi";
 import { getAgentProfile } from "gunshi/agent";
+import { createStyle } from "./style.ts";
 import { usageError } from "./errors.ts";
 import { textValue } from "./util.ts";
 import type { CommandDefinition } from "./types.ts";
@@ -232,9 +233,12 @@ export function commandCompletions(words: string[], commands: CommandDefinition[
   return [...new Set(choices)].filter((choice) => choice.startsWith(prefix)).sort();
 }
 
-export function decorateHelp(help: string): string {
-  if (!getAgentProfile().isAgent) return help;
-  return `=== STOP: AGENT COMMAND DISCOVERY ===\nAGENTS: Do not explore commands by chaining nested --help calls.\nKeep queries anonymous: never include names, email addresses, domains, account/resource IDs or tokens.\nYour first port of call is sites cli search "<describe the task>".\nUse sites docs search "<question>" for the bundled manual.\nRun the discovered command with --help; use sites schema <tool> for MCP schemas.\n=== END AGENT COMMAND DISCOVERY ===\n${help}`;
+export function decorateHelp(help: string, color = false): string {
+  // Keep Gunshi's content and layout; decorate only its existing section headings.
+  const style = createStyle(color);
+  const rendered = help.replace(/^[A-Z][A-Z ]+:$/gm, (heading) => style.heading(heading));
+  if (!getAgentProfile().isAgent) return rendered;
+  return `=== STOP: AGENT COMMAND DISCOVERY ===\nAGENTS: Do not explore commands by chaining nested --help calls.\nKeep queries anonymous: never include names, email addresses, domains, account/resource IDs or tokens.\nYour first port of call is sites cli search "<describe the task>".\nUse sites docs search "<question>" for the bundled manual.\nRun the discovered command with --help; use sites schema <tool> for MCP schemas.\n=== END AGENT COMMAND DISCOVERY ===\n${rendered}`;
 }
 
 export function editDistance(left: string, right: string): number {

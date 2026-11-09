@@ -2,6 +2,7 @@
 
 import { test } from "vite-plus/test";
 import assert from "node:assert/strict";
+import { stripVTControlCharacters } from "node:util";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -360,8 +361,12 @@ test("deploy uploads, saves, polls, and records state", async () => {
       },
     );
     assert.equal(result.code, 0, result.stderr);
-    assert.match(result.stdout, /Deployed appgprj_1/);
-    assert.ok(result.stdout.includes("URL: \u001b[36;4mhttps://demo.chatgpt.site\u001b[0m"));
+    assert.match(stripVTControlCharacters(result.stdout), /Deployed appgprj_1/);
+    assert.ok(
+      result.stdout.includes(
+        "\u001b[1mURL:\u001b[0m \u001b[36;4mhttps://demo.chatgpt.site\u001b[0m",
+      ),
+    );
     assert.ok(result.stderr.includes("\u001b[32m✓\u001b[0m Deploy complete"));
     const save = mock.calls.find((call) => call.name === "sites.save_site_version") as MockCall;
     assert.deepEqual(save.args?.archive, {

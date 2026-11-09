@@ -1,5 +1,6 @@
 // `sites access` (plan §4).
 
+import { outputStyle } from "../output.ts";
 import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
 import type { SiteRecord } from "../api-types.ts";
 import { resolveProjectRef } from "../manifest.ts";
@@ -60,12 +61,17 @@ export function registerAccessCommands(define: DefineCommand): void {
       return {
         data: toData(projectId, site),
         human: (value) => {
-          ctx.stdout.write(`access: ${value.access_mode}\n`);
+          const style = outputStyle(ctx);
+          ctx.stdout.write(`${style.label("access:")} ${value.access_mode}\n`);
           if (value.allowed_user_emails.length) {
-            ctx.stdout.write(`allowed emails: ${value.allowed_user_emails.join(", ")}\n`);
+            ctx.stdout.write(
+              `${style.label("allowed emails:")} ${value.allowed_user_emails.join(", ")}\n`,
+            );
           }
           if (value.available_access_modes.length) {
-            ctx.stdout.write(`available: ${value.available_access_modes.join(", ")}\n`);
+            ctx.stdout.write(
+              `${style.label("available:")} ${style.dim(value.available_access_modes.join(", "))}\n`,
+            );
           }
         },
       };
@@ -138,9 +144,12 @@ export function registerAccessCommands(define: DefineCommand): void {
       return {
         data: toData(projectId, site),
         human: (value) => {
-          ctx.stdout.write(`access: ${value.access_mode}\n`);
+          const style = outputStyle(ctx);
+          ctx.stdout.write(`${style.label("access:")} ${value.access_mode}\n`);
           if (value.access_mode !== mode) {
-            ctx.stdout.write(`Requested ${mode}; propagation can take 40-60 seconds.\n`);
+            ctx.stdout.write(
+              style.warn(`Requested ${mode}; propagation can take 40-60 seconds.`) + "\n",
+            );
           }
         },
       };

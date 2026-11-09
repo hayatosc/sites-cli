@@ -3,10 +3,11 @@
 // Dependency-free weighted substring search with exact command priority and
 // bounded typo correction; return five compact {command, summary} entries.
 
+import { outputStyle } from "../output.ts";
 import { editDistance } from "../args.ts";
 import { bundledDocs } from "virtual:sites-docs";
 import { CliError, usageError } from "../errors.ts";
-import type { CommandDefinition, CommandResult, DefineCommand } from "../types.ts";
+import type { CommandContext, CommandDefinition, CommandResult, DefineCommand } from "../types.ts";
 
 interface CliSearchHit {
   command: string;
@@ -207,6 +208,14 @@ function suggestTool(wanted: string, tools: ToolSchema[]): string | null {
   return best?.name ?? null;
 }
 
+function renderSchemas(ctx: CommandContext, value: ToolSchema | ToolSchema[]): void {
+  const style = outputStyle(ctx);
+  for (const tool of Array.isArray(value) ? value : [value]) {
+    ctx.stdout.write(style.heading(tool.name) + "\n");
+    ctx.stdout.write(style.dim(JSON.stringify(tool.inputSchema, null, 2)) + "\n");
+  }
+}
+
 export function registerDocsCommands(define: DefineCommand, commands: CommandDefinition[]): void {
   define({
     path: ["cli", "search"],
@@ -221,7 +230,8 @@ export function registerDocsCommands(define: DefineCommand, commands: CommandDef
         data: results,
         human: (value) => {
           for (const hit of value) {
-            ctx.stdout.write(`${hit.command}\t${hit.summary}\n`);
+            const style = outputStyle(ctx);
+            ctx.stdout.write(`${style.heading(hit.command)}\t${style.dim(hit.summary)}\n`);
           }
         },
       };
@@ -250,7 +260,10 @@ export function registerDocsCommands(define: DefineCommand, commands: CommandDef
         data: results,
         human: (value) => {
           for (const hit of value) {
-            ctx.stdout.write(`${hit.url}\n${hit.title}\n${hit.description}\n\n`);
+            const style = outputStyle(ctx);
+            ctx.stdout.write(
+              `${style.url(hit.url)}\n${style.heading(hit.title)}\n${style.dim(hit.description)}\n\n`,
+            );
           }
         },
       };
@@ -284,7 +297,8 @@ export function registerDocsCommands(define: DefineCommand, commands: CommandDef
         return {
           data: summary,
           human: (value) => {
-            for (const tool of value as ToolSchema[]) ctx.stdout.write(`${tool.name}\n`);
+            for (const tool of value as ToolSchema[])
+              ctx.stdout.write(outputStyle(ctx).heading(tool.name) + "\n");
           },
         };
       }
@@ -303,7 +317,10 @@ export function registerDocsCommands(define: DefineCommand, commands: CommandDef
           );
         }
         const available = schemas.filter((schema): schema is ToolSchema => schema !== undefined);
-        return { data: available.length === 1 ? available[0] : available };
+        return {
+          data: available.length === 1 ? available[0] : available,
+          human: (value) => renderSchemas(ctx, value),
+        };
       }
       const tool = tools.find((entry) => entry.name === wanted || entry.name === `sites.${wanted}`);
       if (!tool) {
@@ -317,10 +334,7 @@ export function registerDocsCommands(define: DefineCommand, commands: CommandDef
       }
       return {
         data: tool,
-        human: (value) => {
-          ctx.stdout.write(`${(value as ToolSchema).name}\n`);
-          ctx.stdout.write(`${JSON.stringify((value as ToolSchema).inputSchema, null, 2)}\n`);
-        },
+        human: (value) => renderSchemas(ctx, value),
       };
     },
   });

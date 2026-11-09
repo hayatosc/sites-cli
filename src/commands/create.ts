@@ -1,5 +1,6 @@
 // `sites create` (plan §4.2).
 
+import { outputStyle } from "../output.ts";
 import { CliError, EXIT } from "../errors.ts";
 import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
 import { readManifest, writeManifest } from "../manifest.ts";
@@ -72,7 +73,10 @@ export function registerCreateCommands(define: DefineCommand): void {
             dry_run: true,
           },
           human: (value) => {
-            ctx.stdout.write(`Would create site ${value.slug} (${value.access_mode})\n`);
+            const style = outputStyle(ctx);
+            ctx.stdout.write(
+              `${style.heading("Would create site")} ${value.slug} (${value.access_mode})\n`,
+            );
           },
         };
       }
@@ -124,10 +128,13 @@ export function registerCreateCommands(define: DefineCommand): void {
       return {
         data,
         human: (value) => {
-          ctx.stdout.write(`Created site ${value.slug} (${value.project_id})\n`);
-          if (value.url) ctx.stdout.write(`URL: ${value.url}\n`);
-          ctx.stdout.write(`Access: ${value.access_mode}\n`);
-          ctx.stdout.write("Next: sites deploy\n");
+          const style = outputStyle(ctx);
+          ctx.stdout.write(
+            `${style.success("Created site")} ${value.slug} (${style.id(value.project_id)})\n`,
+          );
+          if (value.url) ctx.stdout.write(`${style.label("URL:")} ${style.url(value.url)}\n`);
+          ctx.stdout.write(`${style.label("Access:")} ${value.access_mode}\n`);
+          ctx.stdout.write(style.dim("Next: sites deploy") + "\n");
         },
       };
     },

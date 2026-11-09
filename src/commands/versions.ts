@@ -13,7 +13,7 @@ import { confirmDestructive } from "../prompt.ts";
 import { CliError, EXIT, usageError } from "../errors.ts";
 import { integerOption } from "../args.ts";
 import { stringOption } from "../util.ts";
-import { renderTable } from "../output.ts";
+import { outputStyle, renderTable } from "../output.ts";
 
 interface VersionSummary {
   version_id: string;
@@ -125,7 +125,21 @@ export function registerVersionCommands(define: DefineCommand): void {
     positionals: { min: 0, max: 0 },
     summary: "Upload a version without deploying it",
     usage: "sites versions create [--prebuilt] [--dry-run] [--tag <tag>] [--message <text>]",
-    run: async (ctx) => ({ data: await runDeploy(ctx, { uploadOnly: true }) }),
+    run: async (ctx): Promise<CommandResult<Awaited<ReturnType<typeof runDeploy>>>> => ({
+      data: await runDeploy(ctx, { uploadOnly: true }),
+      human: (value) => {
+        const style = outputStyle(ctx);
+        if (value.dry_run) {
+          ctx.stdout.write(`${style.success("Dry run OK")} (${value.kind ?? "site"}).\n`);
+          return;
+        }
+        ctx.stdout.write(
+          `${style.success("Created version")} ${style.id(value.version_id ?? "-")} (${value.version_number ?? "-"})\n`,
+        );
+        ctx.stdout.write(`${style.label("commit:")} ${style.id(value.commit_sha ?? "-")}\n`);
+        ctx.stdout.write(`${style.label("status:")} ${style.status(value.status)}\n`);
+      },
+    }),
   });
   define({
     path: ["versions", "list"],
@@ -144,18 +158,19 @@ export function registerVersionCommands(define: DefineCommand): void {
       return {
         data: { items, cursor: result.cursor ?? null },
         human: (value) => {
+          const style = outputStyle(ctx);
           if (!value.items.length) {
-            ctx.stdout.write("No versions.\n");
+            ctx.stdout.write(style.dim("No versions.") + "\n");
             return;
           }
           renderTable(
             ctx.stdout,
-            ["VERSION_ID", "NUMBER", "COMMIT", "CREATED"],
+            ["VERSION_ID", "NUMBER", "COMMIT", "CREATED"].map(style.heading),
             value.items.map((item) => [
-              item.version_id,
+              style.id(item.version_id),
               item.version_number === null ? "" : String(item.version_number),
-              item.commit_sha?.slice(0, 12) ?? "",
-              item.created_at ?? "",
+              style.id(item.commit_sha?.slice(0, 12) ?? ""),
+              style.dim(item.created_at ?? ""),
             ]),
           );
         },
@@ -195,12 +210,19 @@ export function registerVersionCommands(define: DefineCommand): void {
           deployment,
         },
         human: (value) => {
-          ctx.stdout.write(`version: ${value.version_id}\n`);
-          ctx.stdout.write(`number: ${value.version_number ?? "-"}\n`);
-          ctx.stdout.write(`commit: ${value.commit_sha ?? "-"}\n`);
-          ctx.stdout.write(`deployment: ${value.deployment_id ?? "-"}\n`);
-          if (value.deployment?.status) ctx.stdout.write(`status: ${value.deployment.status}\n`);
-          if (value.deployment?.url) ctx.stdout.write(`url: ${value.deployment.url}\n`);
+          const style = outputStyle(ctx);
+          ctx.stdout.write(`${style.label("version:")} ${style.id(value.version_id)}\n`);
+          ctx.stdout.write(`${style.label("number:")} ${value.version_number ?? "-"}\n`);
+          ctx.stdout.write(`${style.label("commit:")} ${style.id(value.commit_sha ?? "-")}\n`);
+          ctx.stdout.write(
+            `${style.label("deployment:")} ${style.id(value.deployment_id ?? "-")}\n`,
+          );
+          if (value.deployment?.status)
+            ctx.stdout.write(
+              `${style.label("status:")} ${style.status(value.deployment.status)}\n`,
+            );
+          if (value.deployment?.url)
+            ctx.stdout.write(`${style.label("url:")} ${style.url(value.deployment.url)}\n`);
         },
       };
     },
@@ -268,9 +290,14 @@ export function registerVersionCommands(define: DefineCommand): void {
           access_mode: accessMode,
         },
         human: (value) => {
-          ctx.stdout.write(`Rollback requested for ${value.version_id}\n`);
-          ctx.stdout.write(`deployment: ${value.deployment_id ?? "-"} (${value.status})\n`);
-          if (value.url) ctx.stdout.write(`url: ${value.url}\n`);
+          const style = outputStyle(ctx);
+          ctx.stdout.write(
+            `${style.success("Rollback requested for")} ${style.id(value.version_id)}\n`,
+          );
+          ctx.stdout.write(
+            `${style.label("deployment:")} ${style.id(value.deployment_id ?? "-")} (${style.status(value.status)})\n`,
+          );
+          if (value.url) ctx.stdout.write(`${style.label("url:")} ${style.url(value.url)}\n`);
         },
       };
     },
