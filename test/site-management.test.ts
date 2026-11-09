@@ -232,7 +232,8 @@ test("analytics summary aligns the window to UTC-08:00 hours", async () => {
       end_time_ms: number;
       granularity: string;
     };
-    assert.equal(args.granularity, "hour");
+    assert.equal(args.granularity, "1h");
+    assert.equal(JSON.parse(result.stdout).overview.total_requests, 1);
     assert.equal((args.start_time_ms + 8 * 3600_000) % 3600_000, 0);
     assert.equal((args.end_time_ms + 8 * 3600_000) % 3600_000, 0);
   } finally {

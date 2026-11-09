@@ -14,7 +14,7 @@ import {
   tempDir,
   writeAuthFile,
 } from "./helpers/index.ts";
-import { parseSse, McpClient } from "../src/mcp.ts";
+import { parseSse, McpClient, VERSION } from "../src/mcp.ts";
 import { decodeJwtExpiry } from "../src/auth.ts";
 import { readManifest, writeManifest, writeState, readState } from "../src/manifest.ts";
 
@@ -49,7 +49,8 @@ test("manifest and state round-trip", () => {
 test("--version and help", async () => {
   const version = await runCli(["--version"]);
   assert.equal(version.code, 0);
-  assert.equal(version.stdout.trim(), "0.1.0");
+  assert.equal(version.stdout.trim(), "0.1.2");
+  assert.equal(VERSION, "0.1.2");
 
   const help = await runCli(["--help"]);
   assert.equal(help.code, 0);
@@ -99,7 +100,7 @@ test("help includes command discovery only when Gunshi detects an agent", async 
       profile.mockReturnValue({ isAgent });
       const version = await runCli(["--version"]);
       assert.equal(version.code, 0, version.stderr);
-      assert.equal(version.stdout.trim(), "0.1.0");
+      assert.equal(version.stdout.trim(), "0.1.2");
       for (const argv of [["--help"], ["list", "--help"], ["auth", "--help"]]) {
         const result = await runCli(argv);
         assert.equal(result.code, 0, result.stderr);
@@ -157,6 +158,7 @@ test("auth whoami --check initializes over SSE", async () => {
     assert.equal(result.code, 0);
     assert.match(result.stdout, /Server: plugin-runtime/);
     assert.equal(mcp.calls[0].method, "initialize");
+    assert.match(mcp.calls[0].headers["user-agent"] ?? "", /codex_cli_rs\/0\.1\.2/);
     assert.equal(mcp.calls[0].headers.authorization, "Bearer test-token");
     assert.equal(mcp.calls[0].headers["x-openai-product-sku"], "codex");
   } finally {
