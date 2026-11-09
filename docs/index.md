@@ -30,15 +30,22 @@ npx @hayatosc/sites auth whoami --check
 
 ## First deployment
 
+Use an existing application project. Prepare `.openai/hosting.json` before creating the site; for static output:
+
+```json
+{
+  "project_id": null,
+  "static": { "directory": "dist" }
+}
+```
+
 ```sh
-mkdir my-site && cd my-site
-npx @hayatosc/sites init --template static
 npx @hayatosc/sites create my-site
 npx @hayatosc/sites deploy
 npx @hayatosc/sites open
 ```
 
-`init` creates a manifest with `project_id: null` and a build scaffold. `create` creates the remote site and saves its ID. `deploy` builds, synchronizes source, uploads, and deploys.
+`create` creates the remote site and saves its ID. `deploy` builds, synchronizes source, uploads, and deploys. Use your project's own tooling for scaffolding, local development and type generation; the configuration manual describes Worker manifests.
 
 ## Output
 
@@ -48,7 +55,7 @@ Errors are human-readable on stderr, with optional `hint:` and `docs:` lines. Pr
 
 `--human` is an optional Sites extension for readable tables and text. There is no `--json` output mode, structured error JSON, or `{ok,data,meta}` envelope. Update older scripts to read the result directly.
 
-Every command accepts `--dry-run`. Most only validate arguments without auth, network, or filesystem effects. Native deploy/version previews may build locally; migrate stages conversion; create and env push inspect local inputs. Previews omit sensitive argument values.
+Every command accepts `--dry-run`. Most only validate arguments without auth, network, or filesystem effects. Native deploy/version previews may build locally; create and env push inspect local inputs. Previews omit sensitive argument values.
 
 Destructive confirmation can only be bypassed with `--force` (`-f`) on commands that support it. `--yes` and `-y` are not supported. Quiet is not consent.
 
@@ -74,7 +81,7 @@ Search works against bundled command definitions and documentation, without a lo
 
 ## Manual sections
 
-- [Projects](projects.md): initialization, local workflows, creation, listing, and deletion.
+- [Projects](projects.md): existing-project setup, completion, creation, listing, and deletion.
 - [Deployment](deploy.md): builds, source synchronization, uploads, status, and logs.
 - [Operations](operations.md): versions, environment, access, domains, analytics, and diagnostics.
 - [Configuration](configuration.md): manifest, runtime bindings, and Wrangler conversion.

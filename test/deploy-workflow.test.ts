@@ -91,31 +91,6 @@ async function createUploadServer(): Promise<{
   };
 }
 
-test("init creates a static project and git repository", async () => {
-  const root = tempDir("sites-init-");
-  const result = await runCli(["init", root, "--template", "static"], {
-    env: { SITES_ALLOW_INSECURE_GIT: "1" },
-  });
-  assert.equal(result.code, 0, result.stderr);
-  assert.ok(fs.existsSync(path.join(root, ".openai/hosting.json")));
-  assert.ok(fs.existsSync(path.join(root, "public/index.html")));
-  assert.ok(fs.existsSync(path.join(root, ".git")));
-  const manifest = JSON.parse(fs.readFileSync(path.join(root, ".openai/hosting.json"), "utf8"));
-  assert.equal(manifest.project_id, null);
-});
-
-test("init rejects unknown templates and non-empty directories", async () => {
-  const root = tempDir("sites-init-");
-  const bad = await runCli(["init", root, "--template", "next"]);
-  assert.equal(bad.code, 1);
-  assert.match(bad.stderr, /Unknown template/);
-
-  fs.writeFileSync(path.join(root, "keep.txt"), "x");
-  const occupied = await runCli(["init", root]);
-  assert.equal(occupied.code, 1);
-  assert.match(occupied.stderr, /not empty/);
-});
-
 test("create dry-run does not touch the API", async () => {
   const { root } = makeProject();
   fs.writeFileSync(path.join(root, ".openai/hosting.json"), JSON.stringify({ project_id: null }));

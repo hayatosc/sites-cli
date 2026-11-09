@@ -21,30 +21,31 @@ npx @hayatosc/sites auth whoami --check   # connect to MCP and verify
 
 ## Getting started
 
+Start with an existing application project and prepare `.openai/hosting.json`. For a static site:
+
+```json
+{
+  "project_id": null,
+  "static": { "directory": "dist" }
+}
+```
+
 ```sh
-mkdir my-site && cd my-site
-npx @hayatosc/sites init --template static
 npx @hayatosc/sites create my-site
 npx @hayatosc/sites deploy
 npx @hayatosc/sites open
 ```
 
-`init` scaffolds an empty directory or, when no template is selected, configures an existing detected project without replacing its sources or package scripts. `create` creates the site and stores the returned `project_id` in `.openai/hosting.json`. `deploy` builds the project, syncs source, uploads the archive, and deploys it.
+`create` creates the site and stores the returned `project_id` in the manifest. `deploy` builds the project, syncs source, uploads the archive, and deploys it. Project scaffolding, local development and type generation belong to your project's own tools. See the configuration manual for Worker manifests.
 
 ## Commands
 
 | Command                                                  | Description                                    |
 | -------------------------------------------------------- | ---------------------------------------------- |
-| `sites init [dir] --template static\|worker-esm`         | Create a project scaffold                      |
 | `sites create <slug>`                                    | Create a site and save `project_id`            |
 | `sites list`                                             | List sites                                     |
 | `sites info [project\|slug]`                             | Show site details                              |
-| `sites build`                                            | Build and validate locally without deploying   |
-| `sites dev [-- <args..>]`                                | Run the project's dev script                   |
-| `sites migrate [path]`                                   | Convert Wrangler config (`--dry-run` to plan)  |
 | `sites complete [shell]`                                 | Print shell completion setup                   |
-| `sites migrations create <message>`                      | Scaffold local SQL in `drizzle/`               |
-| `sites types`                                            | Generate manifest D1/R2 binding declarations   |
 | `sites deploy`                                           | Build and deploy (`--prebuilt` to skip build)  |
 | `sites status [deployment_id]`                           | Show deployment status (`--watch` to wait)     |
 | `sites logs`                                             | Fetch Worker logs (`--follow` to stream)       |
@@ -64,11 +65,11 @@ Run `sites <command> --help` for command-specific flags.
 
 ## Output and exit codes
 
-Like cf, success data is bare JSON on stdout and errors are human-readable on stderr. Exit codes are 0 (success), 1 (any failure), and 130 (interruption or declined confirmation), including delegated builds and dev commands. `--quiet` suppresses results and progress, but not errors; `--quiet=false` re-enables output. Success labels appear only on interactive stderr. `--human` is a human-readable extension.
+Like cf, success data is bare JSON on stdout and errors are human-readable on stderr. Exit codes are 0 (success), 1 (any failure), and 130 (interruption or declined confirmation), including deployment builds. `--quiet` suppresses results and progress, but not errors; `--quiet=false` re-enables output. Success labels appear only on interactive stderr. `--human` is a human-readable extension.
 
 Search results are bare arrays. `logs --follow` streams NDJSON (human lines with `--human`). The former `--json` envelope/structured-error mode and `--yes`/`-y` flags are removed. Update scripts to read results directly and use `--force` on commands requiring noninteractive confirmation; `--quiet` is not consent.
 
-Every command accepts `--dry-run`. Most preview parsed arguments only, without auth, network, files or argument values. Deploy/version creation may build locally; migrate stages its conversion; create/env push validate local inputs.
+Every command accepts `--dry-run`. Most preview parsed arguments only, without auth, network, files or argument values. Deploy/version creation may build locally; create/env push validate local inputs.
 
 | Code | Meaning                            |
 | ---- | ---------------------------------- |
@@ -77,8 +78,6 @@ Every command accepts `--dry-run`. Most preview parsed arguments only, without a
 | 130  | Interrupted                        |
 
 ## Converting from wrangler
-
-Use `sites migrate [directory-or-config-file] --dry-run` to inspect conversion first. Applying requires a clean Git worktree unless `--force`; replacing a manifest also requires `--force` and retains its linked `project_id`.
 
 When `.openai/hosting.json` is absent and `wrangler.jsonc`, `wrangler.json`, or `wrangler.toml` is present, `deploy` converts it to `.openai/hosting.json` and bundles the Worker with Rolldown. If an unsupported binding is present, the command stops without writing files. Use `--allow-unsupported <kind>` to continue intentionally.
 

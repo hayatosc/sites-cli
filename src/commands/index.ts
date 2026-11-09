@@ -6,7 +6,6 @@ import { usageError } from "../errors.ts";
 import type { CommandDefinition, DefineCommand } from "../types.ts";
 import { registerAuthCommands } from "./auth.ts";
 import { registerSiteCommands } from "./sites.ts";
-import { registerInitCommands } from "./init.ts";
 import { registerCreateCommands } from "./create.ts";
 import { registerDeployCommands } from "./deploy.ts";
 import { registerVersionCommands } from "./versions.ts";
@@ -18,8 +17,6 @@ import { registerOpenDeleteCommands } from "./open.ts";
 import { registerDoctorCommands } from "./doctor.ts";
 import { registerDocsCommands } from "./docs.ts";
 import { registerLocalCommands } from "./local.ts";
-import { registerMigrationCommands } from "./migrations.ts";
-import { registerTypeCommands } from "./types.ts";
 
 export function createCommands(): CommandDefinition[] {
   const commands: CommandDefinition[] = [];
@@ -38,7 +35,6 @@ export function createCommands(): CommandDefinition[] {
   };
   registerAuthCommands(define);
   registerSiteCommands(define);
-  registerInitCommands(define);
   registerCreateCommands(define);
   registerDeployCommands(define);
   registerVersionCommands(define);
@@ -49,8 +45,6 @@ export function createCommands(): CommandDefinition[] {
   registerOpenDeleteCommands(define);
   registerDoctorCommands(define);
   registerLocalCommands(define, commands);
-  registerMigrationCommands(define);
-  registerTypeCommands(define);
   registerDocsCommands(define, commands);
   const versionShow = commands.find((command) => command.path.join(" ") === "versions show");
   if (versionShow)

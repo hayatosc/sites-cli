@@ -26,24 +26,13 @@ export const FLAG_DEFS: Record<string, FlagDefinition> = {
   local: { type: "boolean", unsupported: "--local" },
   "persist-to": { type: "string", unsupported: "--persist-to" },
   mode: { type: "string", unsupported: "-m/--mode" },
-  dir: { type: "string", description: "Directory containing SQL migrations (default: drizzle)" },
-  pattern: {
-    type: "string",
-    description: "Top-level SQL pattern under --dir; only * and ? wildcards",
-  },
-  "include-runtime": {
-    type: "boolean",
-    description: "Unsupported: Sites does not expose versioned runtime types",
-  },
   check: { type: "boolean", description: "Connect to the MCP server and verify credentials" },
   limit: { type: "string", description: "Maximum number of items to return" },
   cursor: { type: "string", description: "Pagination cursor" },
   role: { type: "string", description: "Filter by role: owner, editor, or viewer" },
   all: { type: "boolean", description: "Fetch every page" },
   mcp: { type: "boolean", description: "Include MCP connection details" },
-  template: { type: "string", description: "Project template: static or worker-esm" },
-  force: { type: "boolean", description: "Skip confirmation or overwrite existing files" },
-  "no-git": { type: "boolean", description: "Do not initialize a Git repository" },
+  force: { type: "boolean", description: "Skip confirmation" },
   title: { type: "string", description: "Site title" },
   private: { type: "boolean", description: "Use custom access" },
   public: { type: "boolean", description: "Make the site public" },
@@ -81,7 +70,6 @@ export const FLAG_DEFS: Record<string, FlagDefinition> = {
   path: { type: "string", description: "Path to open" },
   list: { type: "boolean", description: "List available tools" },
   offline: { type: "boolean", description: "Skip network checks" },
-  "fix-git": { type: "boolean", description: "Initialize Git and write .gitignore when needed" },
   verbose: { type: "boolean", description: "Show details for every check" },
 };
 
@@ -145,7 +133,7 @@ export interface PreparedArgv {
  * Canonicalize its tokens, not their parsing, to preserve existing flag placement and values.
  * Literal tails are opaque to Gunshi; their original bytes are delivered only to the handler.
  */
-export function prepareArgv(input: string[], commands: CommandDefinition[] = []): PreparedArgv {
+export function prepareArgv(input: string[]): PreparedArgv {
   const argv = input[0] === "help" ? [...input.slice(1), "--help"] : input;
   const tokens = parseArgs(argv);
   const normalized: (string | undefined)[] = [];
@@ -153,8 +141,6 @@ export function prepareArgv(input: string[], commands: CommandDefinition[] = [])
   const seen = new Set<string>();
   const presenceFlags = new Map<string, number>();
   let skip = -1;
-  let firstWord = true;
-  let forwarding = false;
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index];
     if (token.index === skip) continue;
@@ -163,21 +149,11 @@ export function prepareArgv(input: string[], commands: CommandDefinition[] = [])
       break;
     }
     if (token.kind === "positional") {
-      if (firstWord) {
-        forwarding = commands.some(
-          (command) => command.forwardArgs && command.path[0] === token.value,
-        );
-        firstWord = false;
-        normalized.push(token.value ?? "");
-      } else (forwarding ? literal : normalized).push(token.value ?? "");
+      normalized.push(token.value ?? "");
       continue;
     }
     const name = optionName(token.name ?? "");
     const def = FLAG_DEFS[name];
-    if (forwarding && !GLOBAL_FLAGS.includes(name)) {
-      literal.push(argv[token.index]);
-      continue;
-    }
     if (!def) {
       normalized.push(argv[token.index]);
       continue;

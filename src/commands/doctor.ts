@@ -2,14 +2,14 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
+import type { CommandResult, DefineCommand } from "../types.ts";
 import type { DeploymentRecord, SiteRecord } from "../api-types.ts";
 import { authFilePath, decodeJwtExpiry } from "../auth.ts";
 import { inspectDist } from "../package-site.ts";
 import { findWranglerConfig } from "../wrangler.ts";
 import { readManifest, readState, type Manifest } from "../manifest.ts";
 import { CliError } from "../errors.ts";
-import { currentHead, dirtyFiles, git, gitAvailable, isInsideGitRepo } from "../git.ts";
+import { currentHead, dirtyFiles, gitAvailable, isInsideGitRepo } from "../git.ts";
 
 type CheckStatus = "ok" | "warn" | "fail" | "skip";
 
@@ -115,21 +115,13 @@ async function checkAuth(env: Record<string, string | undefined>): Promise<Docto
   }
 }
 
-function fixGit(ctx: CommandContext): string | null {
-  const ignore = path.join(ctx.root, ".gitignore");
-  if (!fs.existsSync(ignore)) {
-    fs.writeFileSync(ignore, "dist/\n.sites/\nnode_modules/\n");
-  }
-  return "Initialized git metadata and .gitignore.";
-}
-
 export function registerDoctorCommands(define: DefineCommand): void {
   define({
     path: ["doctor"],
-    flags: ["offline", "fix-git", "verbose"],
+    flags: ["offline", "verbose"],
     positionals: { min: 0, max: 0 },
     summary: "Check the local project and connection",
-    usage: "sites doctor [--offline] [--fix-git] [--verbose]",
+    usage: "sites doctor [--offline] [--verbose]",
     run: async (ctx): Promise<CommandResult<DoctorData>> => {
       const offline = Boolean(ctx.options.offline);
       const checks: DoctorCheck[] = [];
@@ -195,14 +187,7 @@ export function registerDoctorCommands(define: DefineCommand): void {
       );
 
       if (hasGit) {
-        let fixes: string[] = [];
-        let inRepo = await isInsideGitRepo(ctx.root);
-        if (!inRepo && ctx.options["fix-git"]) {
-          const fixed = fixGit(ctx);
-          if (fixed) fixes.push(fixed);
-          await git(["init", "--initial-branch", "main"], { cwd: ctx.root, allowFailure: true });
-          inRepo = await isInsideGitRepo(ctx.root);
-        }
+        const inRepo = await isInsideGitRepo(ctx.root);
         if (!inRepo) {
           checks.push(
             check(
@@ -216,9 +201,7 @@ export function registerDoctorCommands(define: DefineCommand): void {
           const dirty = await dirtyFiles(ctx.root);
           const head = await currentHead(ctx.root);
           const detail = `${head ? head.slice(0, 12) : "no commits"}; ${dirty.length} uncommitted file(s).`;
-          checks.push(
-            check(8, "git history", dirty.length ? "warn" : "ok", [...fixes, detail].join(" ")),
-          );
+          checks.push(check(8, "git history", dirty.length ? "warn" : "ok", detail));
         }
       } else {
         checks.push(check(8, "git history", "skip", "git is unavailable."));

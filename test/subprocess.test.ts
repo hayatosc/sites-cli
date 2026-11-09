@@ -7,7 +7,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { spawnCommand } from "../src/subprocess.ts";
-import { runCli, tempDir } from "./helpers/index.ts";
+import { tempDir } from "./helpers/index.ts";
 
 const values = [
   "two words",
@@ -143,14 +143,10 @@ cp.spawn = (command, args, options) => { process.stdout.write(JSON.stringify({ c
 }
 
 for (const binDir of ["bin", "node_modules/.bin"]) {
-  test(`dev forwards literal argv through ${binDir} package-manager shim on the current OS`, async () => {
+  test(`the shared subprocess adapter forwards literal argv through ${binDir} package-manager shim on the current OS`, async () => {
     const root = tempDir();
     const bin = path.join(root, binDir);
     fs.mkdirSync(bin, { recursive: true });
-    fs.writeFileSync(
-      path.join(root, "package.json"),
-      JSON.stringify({ scripts: { dev: "fixture" } }),
-    );
     const script = path.join(root, "argv.cjs");
     fs.writeFileSync(script, "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n");
     fs.writeFileSync(
@@ -161,19 +157,21 @@ for (const binDir of ["bin", "node_modules/.bin"]) {
       { mode: 0o755 },
     );
     const args = [...values, "& echo fixture > injected.txt", "$(touch injected.txt)"];
-    const result = await runCli(["dev", "--", ...args], {
-      cwd: root,
-      defaultOutput: true,
-      env: {
-        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
-        PATHEXT: process.platform === "win32" ? ".CMD;.EXE" : undefined,
-        SITES_ACCESS_TOKEN: undefined,
-        SITES_AUTH_PATH: path.join(root, "missing-auth.json"),
-      },
-    });
-    assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), ["run", "dev", "--", ...args]);
-    assert.doesNotMatch(result.stderr, /two words|EXPAND|echo fixture/);
+    const result = await capture(
+      spawnCommand(
+        process.platform === "win32" ? "npm.cmd" : "npm",
+        ["run", "build", "--", ...args],
+        {
+          cwd: root,
+          env: {
+            PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+            PATHEXT: process.platform === "win32" ? ".CMD;.EXE" : undefined,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      ),
+    );
+    assert.deepEqual(result, ["run", "build", "--", ...args]);
     assert.equal(fs.existsSync(path.join(root, "injected.txt")), false);
   });
 }

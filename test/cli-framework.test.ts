@@ -4,6 +4,7 @@ import path from "node:path";
 import { test } from "vite-plus/test";
 import * as argumentSupport from "../src/args.ts";
 import { createCommands } from "../src/commands/index.ts";
+import { writeManifest } from "../src/manifest.ts";
 import { createMockMcp, runCli, tempDir } from "./helpers/index.ts";
 
 const offline = {
@@ -11,10 +12,10 @@ const offline = {
   SITES_AUTH_PATH: path.join(tempDir(), "missing-auth.json"),
 };
 
-test("all 41 native definitions support --help, -h and the help command offline", async () => {
+test("all 35 native definitions support --help, -h and the help command offline", async () => {
   const commands = createCommands();
-  assert.equal(commands.length, 41);
-  assert.equal(commands.filter((command) => !command.hidden).length, 39);
+  assert.equal(commands.length, 35);
+  assert.equal(commands.filter((command) => !command.hidden).length, 33);
   assert.equal("parseCli" in argumentSupport, false);
   for (const command of commands) {
     assert.ok(command.gunshi, command.path.join(" "));
@@ -102,23 +103,54 @@ test("literal tails preserve ordering, empty arguments and flag-looking position
 
 test("explicit no-* booleans remain true flags, including disabling and repeated values", async () => {
   for (const flags of [
-    ["--no-git"],
-    ["--no-git=true"],
-    ["--no-git", "true"],
-    ["--no-git=false", "--no-git"],
+    ["--no-build-script"],
+    ["--no-build-script=true"],
+    ["--no-build-script", "true"],
+    ["--no-build-script=false", "--no-build-script"],
+    ["--no-build-script", "--no-build-script=false", "--no-build-script=false"],
   ]) {
     const cwd = tempDir();
-    const result = await runCli(["init", ...flags], { cwd, env: offline });
+    writeManifest(cwd, { project_id: "appgprj_fixture", static: { directory: "dist" } });
+    fs.mkdirSync(path.join(cwd, "dist"));
+    fs.writeFileSync(path.join(cwd, "dist/index.html"), "fixture");
+    fs.writeFileSync(
+      path.join(cwd, "package.json"),
+      JSON.stringify({ scripts: { build: "node build.cjs" } }),
+    );
+    fs.writeFileSync(
+      path.join(cwd, "build.cjs"),
+      "require('node:fs').writeFileSync('built', 'yes');",
+    );
+    const result = await runCli(["deploy", "--dry-run", ...flags], { cwd, env: offline });
     assert.equal(result.code, 0, result.stderr);
-    assert.equal(fs.existsSync(path.join(cwd, ".git")), false);
+    assert.equal(
+      fs.existsSync(path.join(cwd, "built")),
+      flags.at(-1) === "--no-build-script=false",
+    );
   }
+});
+
+test("project-tooling commands and their exclusive flags are not registered or executable", async () => {
   const cwd = tempDir();
-  const result = await runCli(
-    ["init", "--no-git", "--no-git=false", "--template=static", "--no-git=false"],
-    { cwd, env: offline },
-  );
-  assert.equal(result.code, 0, result.stderr);
-  assert.equal(fs.existsSync(path.join(cwd, ".git")), true);
+  const help = await runCli(["--help"], { cwd, env: offline });
+  const completions = await runCli(["complete", "--", ""], { cwd, env: offline });
+  const names = ["init", "migrate", "migrations", "types", "build", "dev"];
+  for (const name of names) {
+    assert.doesNotMatch(help.stdout, new RegExp(`^\\s+${name}(?:\\s|$)`, "m"));
+    assert.doesNotMatch(completions.stdout, new RegExp(`^${name}$`, "m"));
+    const args = name === "migrations" ? [name, "create", "fixture"] : [name];
+    const result = await runCli(args, { cwd, env: offline });
+    assert.equal(result.code, 1, name);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Unknown command|Command not found/);
+  }
+  for (const flag of ["template", "no-git", "dir", "pattern", "include-runtime", "fix-git"]) {
+    assert.equal(Object.hasOwn(argumentSupport.FLAG_DEFS, flag), false);
+    const result = await runCli(["doctor", `--${flag}`], { cwd, env: offline });
+    assert.equal(result.code, 1, flag);
+    assert.match(result.stderr, /Unknown option/);
+  }
+  assert.deepEqual(fs.readdirSync(cwd), []);
 });
 
 test("completion uses native metadata with flag values in every command position", async () => {

@@ -278,7 +278,7 @@ export async function syncSource(options: SourceSyncOptions): Promise<SourceSync
       if (error instanceof GitError) {
         throw new CliError("CONFLICT_DIVERGED", "Site source changed while saving.", {
           exitCode: EXIT.CONFLICT,
-          hint: "Run `sites doctor --fix-git` for guidance, then retry.",
+          hint: "Run `sites doctor`, resolve the source conflict, then retry.",
           details: { stderr: error.stderr.trim() },
         });
       }

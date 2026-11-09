@@ -93,7 +93,6 @@ npx @hayatosc/sites analytics events --since 24h
 ```sh
 npx @hayatosc/sites doctor
 npx @hayatosc/sites doctor --offline
-npx @hayatosc/sites doctor --fix-git
 npx @hayatosc/sites doctor --verbose
 ```
 
@@ -112,6 +111,6 @@ npx @hayatosc/sites doctor --verbose
 - A recorded `last_rate_limited_at` timestamp, when present (the CLI does not currently populate it).
 - Consistency between local state and the actual deployment.
 
-`--offline` skips checks that need the network. `--fix-git` creates a missing `.gitignore` and initializes Git when the project is not already a repository; existing ignore files are preserved. `--verbose` adds successful-check detail in human output; JSON already contains diagnostic detail.
+`--offline` skips checks that need the network. Doctor does not initialize Git or modify `.gitignore`; prepare repository metadata with your project's own tools. `--verbose` adds successful-check detail in human output; JSON already contains diagnostic detail.
 
 The command exits 0 when no check fails, and 1 when any check fails. Warnings alone exit 0.

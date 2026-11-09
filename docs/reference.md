@@ -16,27 +16,21 @@ Global flags may appear before, within or after a command path.
 | `-h`, `--help`     | Show help                       |
 | `-v`, `--version`  | Show the version                |
 
-Success data is bare JSON; errors use human-readable stderr. The only CLI exit codes are 0, 1 and 130, including delegated `dev`/build failures and interruptions. `--human` remains a Sites extension. `--json`, structured error JSON and the former `{ok,data,meta}` envelope are not supported. `logs --follow` streams NDJSON. Color is disabled when `NO_COLOR` is set. Only `--force` (`-f`) bypasses confirmation on supported commands; `--yes`/`-y` and quiet do not.
+Success data is bare JSON; errors use human-readable stderr. The only CLI exit codes are 0, 1 and 130, including deployment build failures and interruptions. `--human` remains a Sites extension. `--json`, structured error JSON and the former `{ok,data,meta}` envelope are not supported. `logs --follow` streams NDJSON. Color is disabled when `NO_COLOR` is set. Only `--force` (`-f`) bypasses confirmation on supported commands; `--yes`/`-y` and quiet do not.
 
 Cloudflare-only `--zone/-z`, `--mode/-m`, `--local`, `--persist-to`, `--temporary-account` and `--event-code` are explicitly rejected; temporary-account event secrets are never printed or forwarded.
 
-Generic dry-run validates parsing only and omits values. Deploy/version previews may build locally, migrate stages conversion, and create/env push validate local inputs. Boolean flags accept `=true`/`=false`, space-separated `true`/`false`, and negation. For example, `sites --quiet false cli search deploy` prints results. The last boolean setting wins. `--` ends option parsing. Missing, empty or duplicate singleton string flags are errors.
+Generic dry-run validates parsing only and omits values. Deploy/version previews may build locally, and create/env push validate local inputs. Boolean flags accept `=true`/`=false`, space-separated `true`/`false`, and negation. For example, `sites --quiet false cli search deploy` prints results. The last boolean setting wins. `--` ends option parsing. Missing, empty or duplicate singleton string flags are errors.
 
 ## Commands
 
 | Command                                              | Description                              |
 | ---------------------------------------------------- | ---------------------------------------- |
 | `auth whoami [--check]`                              | Show cf-style identity status            |
-| `init [dir] [--template static\|worker-esm]`           | Create a project scaffold                |
 | `create <slug>`                                      | Create a site and save its ID            |
 | `list`                                               | List sites                               |
 | `info [project\|slug]`                               | Show site details                        |
-| `build`                                              | Build and validate locally without deploying |
-| `dev [-- <args..>]`                                  | Run the package dev script, no Sites runtime emulation |
-| `migrate [path]`                                     | Convert a Wrangler directory or config file |
 | `complete [bash\|zsh\|fish\|powershell]`           | Print completion setup (does not edit shell rc files); `complete -- <words..>` handles flags/values in command paths |
-| `migrations create <message>`                       | Scaffold local SQL (`--dir drizzle`, optional `--pattern`, `--force` skips directory consent) |
-| `types`                                             | Generate binding declarations (`--out .openai/types.d.ts`, `--force`) |
 | `deploy`                                             | Build and deploy                         |
 | `status [deployment_id]`                             | Show deployment status                   |
 | `logs`                                               | Fetch Worker logs                        |

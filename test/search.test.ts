@@ -43,11 +43,11 @@ test("audit one-character typo corpus preserves top-five recall", () => {
     if (hits[0] === name) first++;
     count++;
   }
-  assert.equal(count, 25);
-  assert.ok(first >= 24, `${first}/${count} ranked first`);
+  assert.equal(count, 23);
+  assert.ok(first >= 22, `${first}/${count} ranked first`);
 });
 
-test("audit intent corpus retains at least the measured 19/24 top-five hits", () => {
+test("the retained intent corpus preserves its top-five recall", () => {
   const cases = [
     ["publish website", "deploy"],
     ["deployment progress", "status"],
@@ -68,14 +68,11 @@ test("audit intent corpus retains at least the measured 19/24 top-five hits", ()
     ["website traffic", "analytics summary"],
     ["authentication status", "auth whoami"],
     ["diagnose project", "doctor"],
-    ["convert wrangler", "migrate"],
-    ["development server", "dev"],
     ["tab completion", "complete"],
-    ["SQL migration", "migrations create"],
-    ["binding declarations", "types"],
   ];
   const hits = cases.filter(([query, expected]) => results(query).includes(expected));
   const first = cases.filter(([query, expected]) => results(query)[0] === expected);
-  assert.ok(hits.length >= 19, `${hits.length}/24 intent queries found their target`);
-  assert.ok(first.length >= 13, `${first.length}/24 intent queries ranked first`);
+  // Removing four retired targets cannot reduce the old lower bounds by more than four.
+  assert.ok(hits.length >= 15, `${hits.length}/20 intent queries found their target`);
+  assert.ok(first.length >= 9, `${first.length}/20 intent queries ranked first`);
 });

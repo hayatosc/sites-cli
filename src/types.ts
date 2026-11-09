@@ -30,8 +30,6 @@ export interface CommandDefinition<T = unknown> {
   flags?: string[];
   /** Native previews may build locally; other commands only preview parsed arguments. */
   nativeDryRun?: boolean;
-  /** Delegate unknown flags verbatim (e.g. a project's dev server). */
-  forwardArgs?: boolean;
   hidden?: boolean;
   positionals?: { min: number; max: number; names?: string[] };
   summary?: string;

@@ -43,7 +43,7 @@ export async function main(
   let color = false;
   let hasLiteral = false;
   try {
-    const prepared = prepareArgv(argv, commands);
+    const prepared = prepareArgv(argv);
     hasLiteral = prepared.literal.length > 0;
     const subCommands = createCommandTree(commands, async (command, native) => {
       const values = native.values;

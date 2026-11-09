@@ -58,7 +58,7 @@ export function readManifest(root = process.cwd()): {
       const relative = path.relative(root, file) || file;
       throw new CliError("PREFLIGHT_NO_MANIFEST", `No Sites manifest found at ${relative}.`, {
         exitCode: EXIT.PREFLIGHT,
-        hint: "Run `sites init` or `sites create <slug>` to create one.",
+        hint: "Create .openai/hosting.json for your existing project before running sites create; see the configuration manual.",
         details: { path: relative },
       });
     }

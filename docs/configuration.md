@@ -2,7 +2,7 @@
 
 ## .openai/hosting.json
 
-Site configuration lives in `.openai/hosting.json`. `init` creates a minimal file and `create` writes `project_id` into it.
+Site configuration lives in `.openai/hosting.json`. Prepare this file in your existing project with `project_id: null`; `create` writes the remote site's ID into it.
 
 ```json
 {
