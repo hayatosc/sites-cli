@@ -17,11 +17,11 @@ npm install
 
 ## Scripts
 
-| Script | What it runs |
-| --- | --- |
+| Script              | What it runs                  |
+| ------------------- | ----------------------------- |
 | `npm run typecheck` | `vp check` (lint + typecheck) |
-| `npm test` | `vp test` |
-| `npm run build` | `vp pack` → `dist/cli.mjs` |
+| `npm test`          | `vp test`                     |
+| `npm run build`     | `vp pack` → `dist/cli.mjs`    |
 
 All of these use [Vite+](https://viteplus.dev). The pack step embeds every Markdown file under `docs/` into the CLI for `sites docs search`.
 

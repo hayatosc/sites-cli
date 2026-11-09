@@ -54,8 +54,11 @@ export interface CommandContext {
   quiet: boolean;
   /** Resolves (and caches) Codex credentials. */
   getIdentity: () => Identity;
+  /** Writes a progress step to stderr. */
   log: (text: string) => void;
-  /** Writes a cf-style success line only to an interactive, non-quiet stderr. */
+  /** Writes secondary progress details to stderr. */
+  detail: (text: string) => void;
+  /** Writes a success line to interactive or human-mode, non-quiet stderr. */
   success: (text: string) => void;
   /** Lazily creates the MCP client. */
   mcp: () => McpClient;

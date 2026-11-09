@@ -155,7 +155,7 @@ export async function runDeploy(
     conversion = await convertWranglerProject({
       root: ctx.root,
       allowUnsupported: stringListOption(ctx.options, "allow-unsupported"),
-      log: ctx.log,
+      log: ctx.detail,
     });
   }
 
@@ -173,7 +173,7 @@ export async function runDeploy(
     env: ctx.env,
     prebuilt: Boolean(ctx.options.prebuilt),
     noBuildScript: Boolean(ctx.options["no-build-script"]),
-    log: ctx.log,
+    log: ctx.detail,
     output: ctx.stderr,
     quiet: ctx.quiet,
   });
@@ -204,7 +204,7 @@ export async function runDeploy(
 
   if (dryRun) {
     ctx.log(`Dry run (${dist.kind}: ${dist.entry}, ${dist.fileCount} files)`);
-    ctx.log(`build: ${build.mode}${build.command ? ` (${build.command})` : ""}`);
+    ctx.detail(`build: ${build.mode}${build.command ? ` (${build.command})` : ""}`);
     ctx.success("Dry run complete");
     return {
       project_id: projectId,
@@ -256,7 +256,7 @@ export async function runDeploy(
         },
       );
     }
-    ctx.log(`source sync skipped (${commitSha.slice(0, 8)})`);
+    ctx.detail(`source sync skipped (${commitSha.slice(0, 8)})`);
   } else {
     const credential = credentialOf(
       await client.callTool<SourceCredential>("sites.create_source_repository_write_credential", {
@@ -283,18 +283,18 @@ export async function runDeploy(
       token: credential.token,
       message,
       advanceSha,
-      log: ctx.log,
+      log: ctx.detail,
     });
     commitSha = synced.commitSha;
     pushed = synced.pushed;
-    ctx.log(
+    ctx.detail(
       `source ${pushed ? "pushed" : "unchanged"} (${commitSha.slice(0, 8)} → ${synced.branch})`,
     );
   }
 
   ctx.log("Package");
   const archive = await createArchive(ctx.root);
-  ctx.log(`${archive.fileCount} files, ${archive.sizeBytes} bytes`);
+  ctx.detail(`${archive.fileCount} files, ${archive.sizeBytes} bytes`);
 
   ctx.log("Upload");
   const uploaded = await (async () => {
@@ -304,7 +304,7 @@ export async function runDeploy(
         projectId,
         token: ctx.getIdentity().token,
         env: ctx.env,
-        log: ctx.log,
+        log: ctx.detail,
       });
     } finally {
       fs.rmSync(path.dirname(archive.archiveFile), { recursive: true, force: true });
@@ -383,7 +383,7 @@ export async function runDeploy(
     projectId,
     deploymentId,
     timeoutSeconds: timeout,
-    log: ctx.log,
+    log: ctx.detail,
   });
 
   let accessMode = currentAccess;

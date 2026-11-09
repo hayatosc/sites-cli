@@ -260,19 +260,28 @@ test("human deploy progress honors color overrides on pipes", async () => {
   const { root } = makeProject();
   for (const variant of ["forced", "no-color", "NO_COLOR", "plain", "quiet"]) {
     const result = await runCli(
-      ["deploy", "--dry-run", "--human", ...(variant === "no-color" ? ["--no-color"] : []), ...(variant === "quiet" ? ["--quiet"] : [])],
+      [
+        "deploy",
+        "--dry-run",
+        "--human",
+        ...(variant === "no-color" ? ["--no-color"] : []),
+        ...(variant === "quiet" ? ["--quiet"] : []),
+      ],
       {
         cwd: root,
-        env: { FORCE_COLOR: variant === "plain" ? undefined : "1", NO_COLOR: variant === "NO_COLOR" ? "1" : undefined },
+        env: {
+          FORCE_COLOR: variant === "plain" ? undefined : "1",
+          NO_COLOR: variant === "NO_COLOR" ? "1" : undefined,
+        },
       },
     );
     assert.equal(result.code, 0, result.stderr);
     if (variant === "forced") {
-      assert.match(result.stderr, /\u001b\[36mPreflight\u001b\[0m/);
-      assert.match(result.stderr, /\u001b\[32m✓\u001b\[0m Build complete/);
-      assert.match(result.stderr, /\u001b\[2mbuild: script/);
+      assert.ok(result.stderr.includes("\u001b[36mPreflight\u001b[0m"));
+      assert.ok(result.stderr.includes("\u001b[32m✓\u001b[0m Build complete"));
+      assert.ok(result.stderr.includes("\u001b[2mbuild: script"));
     } else {
-      assert.doesNotMatch(result.stdout + result.stderr, /\u001b\[/);
+      assert.ok(!(result.stdout + result.stderr).includes("\u001b["));
     }
     if (variant === "quiet") assert.equal(result.stdout + result.stderr, "");
     else assert.match(result.stdout, /Dry run OK/);
@@ -283,7 +292,7 @@ test("human deploy progress honors color overrides on pipes", async () => {
   });
   assert.equal(json.code, 0, json.stderr);
   assert.equal(JSON.parse(json.stdout).dry_run, true);
-  assert.doesNotMatch(json.stdout, /\u001b\[/);
+  assert.ok(!json.stdout.includes("\u001b["));
 });
 
 test("deploy uploads, saves, polls, and records state", async () => {
@@ -352,8 +361,8 @@ test("deploy uploads, saves, polls, and records state", async () => {
     );
     assert.equal(result.code, 0, result.stderr);
     assert.match(result.stdout, /Deployed appgprj_1/);
-    assert.match(result.stdout, /URL: \u001b\[32mhttps:\/\/demo\.chatgpt\.site\u001b\[0m/);
-    assert.match(result.stderr, /\u001b\[32m✓\u001b\[0m Deploy complete/);
+    assert.ok(result.stdout.includes("URL: \u001b[32mhttps://demo.chatgpt.site\u001b[0m"));
+    assert.ok(result.stderr.includes("\u001b[32m✓\u001b[0m Deploy complete"));
     const save = mock.calls.find((call) => call.name === "sites.save_site_version") as MockCall;
     assert.deepEqual(save.args?.archive, {
       download_url: "https://files.test/site.tar.gz",

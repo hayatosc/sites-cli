@@ -79,7 +79,7 @@ export function registerAnalyticsCommands(define: DefineCommand): void {
       const args: Record<string, unknown> = {
         project_id: projectId,
         ...window,
-        granularity: "hour",
+        granularity: "1h",
       };
       if (view) args.view = view;
       const overview = await ctx

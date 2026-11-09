@@ -1,5 +1,6 @@
 // Minimal MCP client for https://chatgpt.com/backend-api/ps/mcp (plan §6.1).
 
+import packageJson from "../package.json" with { type: "json" };
 import { CliError, EXIT } from "./errors.ts";
 import type { Identity } from "./auth.ts";
 import { ensureFresh } from "./auth.ts";
@@ -7,7 +8,7 @@ import type { Env } from "./types.ts";
 import { redact, sleep, textValue } from "./util.ts";
 
 export const DEFAULT_MCP_URL = "https://chatgpt.com/backend-api/ps/mcp";
-export const VERSION = "0.1.0";
+export const VERSION = packageJson.version;
 const USER_AGENT = `codex_cli_rs/${VERSION} (Linux; x86_64) rust`;
 
 interface ToolContentItem {

@@ -60,27 +60,27 @@ npx @hayatosc/sites auth whoami --check   # connect to MCP and verify
 
 ## Commands
 
-| Command | Description |
-| --- | --- |
-| `sites create <slug>` | Create a site and save `project_id` |
-| `sites list` | List sites |
-| `sites info [project\|slug]` | Show site details |
-| `sites complete [shell]` | Print shell completion setup |
-| `sites deploy` | Build and deploy (`--prebuilt` skips the build) |
-| `sites status [deployment_id]` | Show deployment status (`--watch` to wait) |
-| `sites logs` | Fetch Worker logs (`--follow` to stream) |
-| `sites versions create\|list\|get\|show\|rollback` | Manage versions |
-| `sites env list\|get\|set\|unset\|pull\|push` | Manage environment variables |
-| `sites access show\|set` | Manage access mode |
-| `sites domains add\|get\|list\|refresh\|remove` | Manage custom domains |
-| `sites analytics summary\|events` | Read analytics |
-| `sites open` | Open in a browser (`--print` for the URL only) |
-| `sites delete --force` | Delete a site |
-| `sites doctor` | Diagnose the local environment and connection |
-| `sites auth whoami [--check]` | Show identity status |
-| `sites cli search <query>` | Rank up to five commands by intent |
-| `sites docs search <query>` | Search the bundled manual |
-| `sites schema <tool\|command..>` / `sites schema --list` | Print MCP tool input schemas |
+| Command                                                  | Description                                     |
+| -------------------------------------------------------- | ----------------------------------------------- |
+| `sites create <slug>`                                    | Create a site and save `project_id`             |
+| `sites list`                                             | List sites                                      |
+| `sites info [project\|slug]`                             | Show site details                               |
+| `sites complete [shell]`                                 | Print shell completion setup                    |
+| `sites deploy`                                           | Build and deploy (`--prebuilt` skips the build) |
+| `sites status [deployment_id]`                           | Show deployment status (`--watch` to wait)      |
+| `sites logs`                                             | Fetch Worker logs (`--follow` to stream)        |
+| `sites versions create\|list\|get\|show\|rollback`       | Manage versions                                 |
+| `sites env list\|get\|set\|unset\|pull\|push`            | Manage environment variables                    |
+| `sites access show\|set`                                 | Manage access mode                              |
+| `sites domains add\|get\|list\|refresh\|remove`          | Manage custom domains                           |
+| `sites analytics summary\|events`                        | Read analytics                                  |
+| `sites open`                                             | Open in a browser (`--print` for the URL only)  |
+| `sites delete --force`                                   | Delete a site                                   |
+| `sites doctor`                                           | Diagnose the local environment and connection   |
+| `sites auth whoami [--check]`                            | Show identity status                            |
+| `sites cli search <query>`                               | Rank up to five commands by intent              |
+| `sites docs search <query>`                              | Search the bundled manual                       |
+| `sites schema <tool\|command..>` / `sites schema --list` | Print MCP tool input schemas                    |
 
 Run `sites <command> --help` for command-specific flags. Agents should prefer `sites cli search` and `sites docs search` over chaining nested `--help` calls.
 
@@ -96,11 +96,11 @@ Run `sites <command> --help` for command-specific flags. Agents should prefer `s
 
 Success data is bare JSON on stdout. Errors are human-readable on stderr. Search results are bare arrays. `logs --follow` streams NDJSON (human lines with `--human`).
 
-| Code | Meaning |
-| --- | --- |
-| 0 | Success |
-| 1 | Any failure (including a failed deployment build) |
-| 130 | Interrupted or declined confirmation |
+| Code | Meaning                                           |
+| ---- | ------------------------------------------------- |
+| 0    | Success                                           |
+| 1    | Any failure (including a failed deployment build) |
+| 130  | Interrupted or declined confirmation              |
 
 `--quiet` / `-q` suppresses results and progress, not errors (`--quiet=false` restores output). `--human` prints human-readable tables/text. There is no `--json` envelope mode and no `--yes`/`-y`; use `--force` (`-f`) where confirmation must be skipped.
 
@@ -110,17 +110,17 @@ Every command accepts `--dry-run`. Most commands preview parsed arguments only (
 
 Site settings live in `.openai/hosting.json`. Common keys: `project_id`, `static.directory`, `static.not_found_handling`, `d1`, `r2`, `capabilities`. See [Configuration](docs/configuration.md).
 
-| Variable | Description |
-| --- | --- |
-| `SITES_ACCESS_TOKEN` | Access token (overrides Codex auth file) |
-| `SITES_AUTH_PATH` | Path to the Codex auth file |
-| `SITES_AUTH_URL` | Token refresh endpoint |
-| `SITES_MCP_URL` | MCP server URL |
-| `SITES_API_BASE` | File API base URL |
-| `SITES_RETRY_BASE_MS` | Base delay for rate-limit retries |
-| `SITES_UPLOAD_POLL_MS` | Upload completion polling interval |
-| `SITES_LOG_INTERVAL_MS` | `logs --follow` polling interval |
-| `NO_COLOR` | Disable color |
+| Variable                | Description                              |
+| ----------------------- | ---------------------------------------- |
+| `SITES_ACCESS_TOKEN`    | Access token (overrides Codex auth file) |
+| `SITES_AUTH_PATH`       | Path to the Codex auth file              |
+| `SITES_AUTH_URL`        | Token refresh endpoint                   |
+| `SITES_MCP_URL`         | MCP server URL                           |
+| `SITES_API_BASE`        | File API base URL                        |
+| `SITES_RETRY_BASE_MS`   | Base delay for rate-limit retries        |
+| `SITES_UPLOAD_POLL_MS`  | Upload completion polling interval       |
+| `SITES_LOG_INTERVAL_MS` | `logs --follow` polling interval         |
+| `NO_COLOR`              | Disable color                            |
 
 Normal usage does not require any of these variables.
 

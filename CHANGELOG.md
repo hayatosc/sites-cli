@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-11-09
+
+### Added
+
+- Colored human progress steps, green success markers and final deploy URLs, and dimmed progress details.
+- `FORCE_COLOR` support for non-interactive recordings, with `--no-color` and `NO_COLOR` taking precedence.
+
+### Fixed
+
+- Read the CLI and MCP client version from `package.json` instead of hardcoding it.
+- Send the supported `1h` analytics granularity while preserving UTC-08:00 bucket alignment.
+- Format contributor documentation, README, and package metadata with the project formatter so checks pass.
+
 ## [0.1.1] - 2026-11-09
 
 ### Fixed

@@ -15,9 +15,9 @@ import {
 import { createCommands, createCommandTree } from "./commands/index.ts";
 import { loadAuthIdentity } from "./auth.ts";
 import type { Identity } from "./auth.ts";
-import { McpClient } from "./mcp.ts";
+import { McpClient, VERSION } from "./mcp.ts";
 import { CliError, CommandExit, EXIT, usageError, normalizeExitCode } from "./errors.ts";
-import { colorEnabled, printError } from "./output.ts";
+import { colorEnabled, paint, printError } from "./output.ts";
 import type { CommandContext, Env, OutputStream } from "./types.ts";
 import { forwardSignal, runCleanup, stringifyJson } from "./util.ts";
 
@@ -86,10 +86,14 @@ export async function main(
         quiet,
         getIdentity,
         log: (text) => {
-          if (!quiet) stderr.write(text + "\n");
+          if (!quiet) stderr.write(paint(text, "36", color) + "\n");
+        },
+        detail: (text) => {
+          if (!quiet) stderr.write(paint(text, "2", color) + "\n");
         },
         success: (text) => {
-          if (!quiet && stderr.isTTY) stderr.write(`✓ ${text}\n`);
+          if (!quiet && (stderr.isTTY || values.human))
+            stderr.write(`${paint("✓", "32", color)} ${text}\n`);
         },
         mcp: () => (client ??= new McpClient(getIdentity(), { env })),
       };
@@ -129,7 +133,7 @@ export async function main(
       }),
       {
         name: "sites",
-        version: "0.1.0",
+        version: VERSION,
         cwd,
         subCommands,
         plugins: [globalFlags],

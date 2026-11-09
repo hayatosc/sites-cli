@@ -6,6 +6,7 @@ import { readManifest, readState } from "../manifest.ts";
 import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
 import type { DeploymentRecord, WorkerLogsResult } from "../api-types.ts";
 import { integerOption } from "../args.ts";
+import { colorEnabled, paint } from "../output.ts";
 import { registerCleanup, sleep } from "../util.ts";
 
 const ACTIVE = new Set(["pending", "publishing", "building"]);
@@ -113,7 +114,7 @@ export function registerDeployCommands(define: DefineCommand): void {
           }
           const lines = [
             `Deployed ${value.project_id}`,
-            `URL: ${value.url ?? "(pending)"}`,
+            `URL: ${value.url ? paint(value.url, "32", colorEnabled(ctx.stdout, ctx.options, ctx.env)) : "(pending)"}`,
             `Version: ${value.version_number ?? "-"} (${value.version_id ?? "-"})`,
             `Deployment: ${value.deployment_id ?? "-"} ${value.status}`,
           ];

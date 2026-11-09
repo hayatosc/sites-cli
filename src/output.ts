@@ -8,11 +8,12 @@ export function colorEnabled(
   options: Record<string, unknown>,
   env: Env,
 ): boolean {
-  if (options["no-color"] || env.NO_COLOR) return false;
+  if (options["no-color"] || env.NO_COLOR !== undefined) return false;
+  if (env.FORCE_COLOR !== undefined) return env.FORCE_COLOR !== "0";
   return Boolean(stream.isTTY);
 }
 
-function paint(text: string, code: string, enabled: boolean): string {
+export function paint(text: string, code: string, enabled: boolean): string {
   return enabled ? `\u001b[${code}m${text}\u001b[0m` : text;
 }
 

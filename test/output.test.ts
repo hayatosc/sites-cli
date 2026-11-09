@@ -17,8 +17,17 @@ const cases: Array<{
   { name: "FORCE_COLOR=0", tty: true, env: { FORCE_COLOR: "0" }, expected: false },
   { name: "NO_COLOR on TTY", tty: true, env: { NO_COLOR: "1" }, expected: false },
   { name: "NO_COLOR beats FORCE_COLOR", env: { NO_COLOR: "1", FORCE_COLOR: "1" }, expected: false },
-  { name: "empty NO_COLOR beats FORCE_COLOR", env: { NO_COLOR: "", FORCE_COLOR: "1" }, expected: false },
-  { name: "--no-color beats FORCE_COLOR", options: { "no-color": true }, env: { FORCE_COLOR: "1" }, expected: false },
+  {
+    name: "empty NO_COLOR beats FORCE_COLOR",
+    env: { NO_COLOR: "", FORCE_COLOR: "1" },
+    expected: false,
+  },
+  {
+    name: "--no-color beats FORCE_COLOR",
+    options: { "no-color": true },
+    env: { FORCE_COLOR: "1" },
+    expected: false,
+  },
 ];
 
 for (const entry of cases) {

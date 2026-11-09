@@ -1,7 +1,25 @@
 {
   "name": "@hayatosc/sites",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Deploy ChatGPT Sites projects from the command line",
+  "keywords": [
+    "chatgpt",
+    "cli",
+    "cloudflare",
+    "deploy",
+    "openai",
+    "sites",
+    "workers"
+  ],
+  "homepage": "https://github.com/hayatosc/sites-cli#readme",
+  "bugs": {
+    "url": "https://github.com/hayatosc/sites-cli/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hayatosc/sites-cli.git"
+  },
   "bin": {
     "sites": "dist/cli.mjs"
   },
@@ -30,23 +48,5 @@
   },
   "engines": {
     "node": ">=22.13"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/hayatosc/sites-cli.git"
-  },
-  "homepage": "https://github.com/hayatosc/sites-cli#readme",
-  "bugs": {
-    "url": "https://github.com/hayatosc/sites-cli/issues"
-  },
-  "keywords": [
-    "chatgpt",
-    "sites",
-    "cli",
-    "deploy",
-    "openai",
-    "cloudflare",
-    "workers"
-  ],
-  "license": "MIT"
+  }
 }
