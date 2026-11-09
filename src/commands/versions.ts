@@ -7,7 +7,9 @@ import type {
   SiteRecord,
   SiteVersionRecord,
 } from "../api-types.ts";
-import { resolveProjectRef } from "../manifest.ts";
+import { readState, resolveProjectRef, writeState } from "../manifest.ts";
+import { runDeploy } from "../deploy.ts";
+import { confirmDestructive } from "../prompt.ts";
 import { CliError, EXIT, usageError } from "../errors.ts";
 import { integerOption } from "../args.ts";
 import { stringOption } from "../util.ts";
@@ -62,7 +64,80 @@ function table(ctx: CommandContext, header: string[], rows: string[][]): void {
   ctx.stdout.write([render(header), ...rows.map(render)].join("\n") + "\n");
 }
 
+async function previousVersion(ctx: CommandContext, projectId: string): Promise<string> {
+  const state = readState(ctx.root);
+  if (!state.last_deployment_id) {
+    throw usageError(
+      "PREFLIGHT_UNKNOWN_ACTIVE_VERSION",
+      "The active deployment is not recorded locally.",
+      {
+        hint: "Pass an explicit version_id from `sites versions list` instead of --previous.",
+      },
+    );
+  }
+  const active = await ctx.mcp().callTool<DeploymentRecord>("sites.get_deployment_status", {
+    project_id: projectId,
+    deployment_id: state.last_deployment_id,
+  });
+  const activeId = active.version_id;
+  if (active.status !== "succeeded" || !activeId) {
+    throw usageError(
+      "PREFLIGHT_UNKNOWN_ACTIVE_VERSION",
+      "The active version cannot be established from the recorded deployment.",
+      {
+        hint: "Check `sites status` or pass an explicit version_id.",
+      },
+    );
+  }
+  let foundActive = false;
+  let cursor: string | undefined;
+  const seen = new Set<string>();
+  for (let page = 0; page < 50; page++) {
+    const result = await ctx.mcp().callTool<ListVersionsResult>("sites.list_site_versions", {
+      project_id: projectId,
+      limit: 100,
+      ...(cursor ? { cursor } : {}),
+    });
+    for (const version of result.items ?? []) {
+      if (version.id === activeId) {
+        foundActive = true;
+        continue;
+      }
+      if (!foundActive || !version.id || !version.deployment_id) continue;
+      const deployment = await ctx.mcp().callTool<DeploymentRecord>("sites.get_deployment_status", {
+        project_id: projectId,
+        deployment_id: version.deployment_id,
+      });
+      if (deployment.status === "succeeded") return version.id;
+    }
+    cursor = result.cursor ?? undefined;
+    if (!cursor) break;
+    if (seen.has(cursor)) throw new CliError("PAGINATION_STALLED", "The version cursor repeated.");
+    seen.add(cursor);
+  }
+  throw new CliError("NOT_FOUND_VERSION", "No earlier successfully deployed version was found.", {
+    hint: "Pass an explicit version_id from `sites versions list`.",
+  });
+}
+
 export function registerVersionCommands(define: DefineCommand): void {
+  define({
+    path: ["versions", "create"],
+    nativeDryRun: true,
+    flags: [
+      "prebuilt",
+      "no-build-script",
+      "message",
+      "tag",
+      "no-source-sync",
+      "allow-dirty",
+      "allow-unsupported",
+    ],
+    positionals: { min: 0, max: 0 },
+    summary: "Upload a version without deploying it",
+    usage: "sites versions create [--prebuilt] [--dry-run] [--tag <tag>] [--message <text>]",
+    run: async (ctx) => ({ data: await runDeploy(ctx, { uploadOnly: true }) }),
+  });
   define({
     path: ["versions", "list"],
     flags: ["limit", "cursor"],
@@ -70,8 +145,8 @@ export function registerVersionCommands(define: DefineCommand): void {
     summary: "List site versions",
     usage: "sites versions list [--limit 20] [--cursor <cursor>]",
     run: async (ctx): Promise<CommandResult<VersionListData>> => {
-      const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const limit = integerOption(ctx.options, "limit", { min: 1, max: 100, fallback: 20 });
+      const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const args: Record<string, unknown> = { project_id: projectId, limit };
       const cursor = stringOption(ctx.options, "cursor");
       if (cursor) args.cursor = cursor;
@@ -144,40 +219,38 @@ export function registerVersionCommands(define: DefineCommand): void {
 
   define({
     path: ["versions", "rollback"],
-    flags: ["previous", "yes"],
+    flags: ["previous", "yes", "force"],
     positionals: { min: 0, max: 1, names: ["version_id|--previous"] },
     summary: "Redeploy an existing version",
-    usage: "sites versions rollback <version_id|--previous> [--yes]",
+    usage: "sites versions rollback <version_id|--previous> [--force]",
     run: async (ctx): Promise<CommandResult<RollbackData>> => {
-      const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
-      let versionId = ctx.positionals[0];
+      let versionId = ctx.positionals[0] ?? "";
       if (ctx.options.previous && versionId) {
         throw usageError(
           "USAGE_UNEXPECTED_ARGUMENT",
           "Pass either a version_id or --previous, not both.",
         );
       }
-      if (ctx.options.previous) {
-        const versions = await ctx.mcp().callTool<ListVersionsResult>("sites.list_site_versions", {
-          project_id: projectId,
-          limit: 20,
-        });
-        const candidate = (versions.items ?? [])[1];
-        if (!candidate?.id) {
-          throw new CliError("NOT_FOUND_VERSION", "There is no previous version to roll back to.", {
-            exitCode: EXIT.GENERAL,
-          });
-        }
-        versionId = candidate.id;
-      }
-      if (!versionId) {
+      if (!versionId && !ctx.options.previous) {
         throw usageError("USAGE_MISSING_ARGUMENT", "Pass a version_id or --previous.", {
           hint: "Run `sites versions list` to find a version.",
         });
       }
+      const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
+      if (ctx.options.previous) versionId = await previousVersion(ctx, projectId);
       const site = await ctx
         .mcp()
         .callTool<SiteRecord>("sites.get_site", { project_id: projectId });
+      if (
+        !(await confirmDestructive(
+          ctx,
+          `site ${projectId} to version ${versionId}`,
+          Boolean(ctx.options.force),
+          "rolls back",
+        ))
+      ) {
+        throw new CliError("CANCELLED", "Rollback cancelled.", { exitCode: EXIT.INTERRUPT });
+      }
       const accessMode = site.access_mode ?? "custom";
       const tool =
         accessMode === "custom" ? "sites.deploy_private_site_version" : "sites.deploy_site_version";
@@ -185,18 +258,28 @@ export function registerVersionCommands(define: DefineCommand): void {
         project_id: projectId,
         version_id: versionId,
       });
-      ctx.success(`Rolled back to ${versionId}`);
+      const deploymentId = (deployment.id ?? deployment.deployment_id ?? null) as string | null;
+      if (deploymentId) {
+        const state = readState(ctx.root);
+        writeState(ctx.root, {
+          ...state,
+          last_deployment_id: deploymentId,
+          ...(deployment.status === "succeeded" ? { last_version_id: versionId } : {}),
+          updated_at: new Date().toISOString(),
+        });
+      }
+      ctx.success(`Rollback requested for ${versionId}`);
       return {
         data: {
           project_id: projectId,
           version_id: versionId,
-          deployment_id: (deployment.id ?? deployment.deployment_id ?? null) as string | null,
+          deployment_id: deploymentId,
           status: deployment.status ?? "pending",
           url: deployment.url ?? null,
           access_mode: accessMode,
         },
         human: (value) => {
-          ctx.stdout.write(`rolled back to ${value.version_id}\n`);
+          ctx.stdout.write(`Rollback requested for ${value.version_id}\n`);
           ctx.stdout.write(`deployment: ${value.deployment_id ?? "-"} (${value.status})\n`);
           if (value.url) ctx.stdout.write(`url: ${value.url}\n`);
         },

@@ -10,7 +10,7 @@ import type {
   SiteVersionRecord,
 } from "../api-types.ts";
 import { resolveProjectRef } from "../manifest.ts";
-import { usageError } from "../errors.ts";
+import { CliError, usageError } from "../errors.ts";
 import { integerOption } from "../args.ts";
 import { stringOption } from "../util.ts";
 
@@ -73,6 +73,8 @@ export function registerSiteCommands(define: DefineCommand): void {
       let cursor = stringOption(ctx.options, "cursor");
       let lastCursor: string | null = null;
       const pageLimit = ctx.options.all ? 100 : limit;
+      const seen = new Set<string>();
+      if (cursor) seen.add(cursor);
 
       for (let page = 0; page < 50; page += 1) {
         const args: Record<string, unknown> = { limit: pageLimit };
@@ -90,6 +92,18 @@ export function registerSiteCommands(define: DefineCommand): void {
         }
         lastCursor = result.cursor ?? null;
         if (!ctx.options.all || !lastCursor) break;
+        if (seen.has(lastCursor))
+          throw new CliError(
+            "PAGINATION_STALLED",
+            "The site cursor repeated; refusing an infinite --all loop.",
+          );
+        if (page === 49)
+          throw new CliError(
+            "PAGINATION_LIMIT",
+            "More than 50 pages were returned; continue with --cursor.",
+            { details: { cursor: lastCursor } },
+          );
+        seen.add(lastCursor);
         cursor = lastCursor;
       }
 

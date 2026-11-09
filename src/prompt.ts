@@ -8,17 +8,19 @@ export async function confirmDestructive(
   ctx: CommandContext,
   label: string,
   force: boolean,
+  action = "permanently deletes",
+  confirmationFlag = "--force",
 ): Promise<boolean> {
   if (force || ctx.yes) return true;
   if (!process.stdin.isTTY) {
-    throw new CliError("CONFIRM_REQUIRED", `This permanently deletes ${label}.`, {
+    throw new CliError("CONFIRM_REQUIRED", `This ${action} ${label}.`, {
       exitCode: EXIT.USAGE,
-      hint: "Re-run with --force to confirm in a non-interactive shell.",
+      hint: `Re-run with ${confirmationFlag} to confirm in a non-interactive shell.`,
     });
   }
   const answer = await new Promise<string>((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-    rl.question(`? This permanently deletes ${label}. Continue? [y/N] `, (value) => {
+    rl.question(`? This ${action} ${label}. Continue? [y/N] `, (value) => {
       rl.close();
       resolve(value.trim().toLowerCase());
     });

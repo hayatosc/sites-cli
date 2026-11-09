@@ -1,9 +1,9 @@
 // `sites open` and `sites delete` (plan §4).
 
-import { spawn } from "node:child_process";
+import { spawnCommand } from "../subprocess.ts";
 import type { CommandResult, DefineCommand } from "../types.ts";
 import type { SiteRecord } from "../api-types.ts";
-import { readManifest, resolveProjectRef, writeManifest } from "../manifest.ts";
+import { readManifest, resolveProjectRef, writeManifest, writeState } from "../manifest.ts";
 import { CliError, EXIT } from "../errors.ts";
 import { stringOption } from "../util.ts";
 import { confirmDestructive } from "../prompt.ts";
@@ -15,26 +15,36 @@ function siteUrl(site: SiteRecord): string | null {
 }
 
 function withPath(base: string, suffix: string | undefined): string {
-  if (!suffix) return base;
-  const extra = suffix.startsWith("/") ? suffix : `/${suffix}`;
-  return new URL(extra, base).toString();
+  const origin = new URL(base);
+  const extra = suffix ? (suffix.startsWith("/") ? suffix : `/${suffix}`) : "";
+  const target = extra ? new URL(extra, origin) : origin;
+  if (!["http:", "https:"].includes(origin.protocol) || target.origin !== origin.origin) {
+    throw new CliError(
+      "USAGE_INVALID_PATH",
+      "The URL must be HTTP(S) and --path must stay on the site's origin.",
+      { exitCode: EXIT.USAGE },
+    );
+  }
+  return target.toString();
 }
 
-function launch(url: string): boolean {
+async function launch(url: string): Promise<boolean> {
   const [command, args] =
     process.platform === "darwin"
       ? ["open", [url]]
       : process.platform === "win32"
-        ? ["cmd", ["/c", "start", "", url]]
+        ? ["rundll32.exe", ["url.dll,FileProtocolHandler", url]]
         : ["xdg-open", [url]];
-  try {
-    const child = spawn(command, args, { detached: true, stdio: "ignore" });
-    child.on("error", () => {});
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
+  return new Promise((resolve) => {
+    // Use a native URL handler on Windows, never cmd.exe/start: query-string
+    // metacharacters must remain URL data rather than shell instructions.
+    const child = spawnCommand(command, args, { detached: true, stdio: "ignore" });
+    child.once("error", () => resolve(false));
+    child.once("spawn", () => {
+      child.unref();
+      resolve(true);
+    });
+  });
 }
 
 interface OpenData {
@@ -65,7 +75,11 @@ export function registerOpenDeleteCommands(define: DefineCommand): void {
       }
       const url = withPath(base, stringOption(ctx.options, "path"));
       const printed = Boolean(ctx.options.print);
-      const opened = printed ? false : launch(url);
+      const opened = printed ? false : await launch(url);
+      if (!printed && !opened)
+        throw new CliError("BROWSER_OPEN_FAILED", "Could not start the browser opener.", {
+          hint: "Use --print to print the URL without opening a browser.",
+        });
       return {
         data: { project_id: projectId, url, opened, printed },
         raw: printed ? url + "\n" : undefined,
@@ -96,22 +110,27 @@ export function registerOpenDeleteCommands(define: DefineCommand): void {
         .callTool<{ project_id?: string; was_deleted?: boolean }>("sites.delete_site", {
           project_id: projectId,
         });
-      try {
-        const manifest = readManifest(ctx.root).manifest;
-        if (manifest.project_id === projectId) {
-          writeManifest(ctx.root, { ...manifest, project_id: null });
+      const manifest = (() => {
+        try {
+          return readManifest(ctx.root).manifest;
+        } catch {
+          return null;
         }
-      } catch {
-        // No local manifest: nothing to clear.
+      })();
+      if (result.was_deleted && manifest?.project_id === projectId) {
+        writeManifest(ctx.root, { ...manifest, project_id: null });
+        writeState(ctx.root, {});
       }
-      ctx.success(`Deleted site ${result.project_id ?? projectId}`);
+      if (result.was_deleted) ctx.success(`Deleted site ${result.project_id ?? projectId}`);
       return {
         data: {
           project_id: result.project_id ?? projectId,
           was_deleted: Boolean(result.was_deleted),
         },
         human: (value) => {
-          ctx.stdout.write(`Deleted ${value.project_id}.\n`);
+          ctx.stdout.write(
+            `${value.was_deleted ? "Deleted" : "Not deleted:"} ${value.project_id}.\n`,
+          );
         },
       };
     },

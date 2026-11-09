@@ -4,10 +4,11 @@ import fs from "node:fs";
 import path from "node:path";
 import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
 import type { EnvironmentEntry, EnvironmentResult } from "../api-types.ts";
-import { resolveProjectRef } from "../manifest.ts";
+import { projectIdFromManifest, resolveProjectRef } from "../manifest.ts";
 import { CliError, EXIT, usageError } from "../errors.ts";
 import { booleanOption, stringOption } from "../util.ts";
 import { readEnvFile } from "../env-file.ts";
+import { confirmDestructive } from "../prompt.ts";
 
 const KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -193,13 +194,25 @@ export function registerEnvCommands(define: DefineCommand): void {
 
   define({
     path: ["env", "unset"],
-    flags: [],
+    flags: ["force"],
     positionals: { min: 1, max: 1, names: ["KEY"] },
     summary: "Remove an environment variable",
-    usage: "sites env unset <KEY>",
+    usage: "sites env unset <KEY> [--force]",
     run: async (ctx): Promise<CommandResult<{ project_id: string; removed: string }>> => {
       const key = requireKey(ctx.positionals[0]);
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
+      if (
+        !(await confirmDestructive(
+          ctx,
+          `environment variable ${key}`,
+          booleanOption(ctx.options, "force"),
+          "removes",
+        ))
+      ) {
+        throw new CliError("CANCELLED", "Environment removal cancelled.", {
+          exitCode: EXIT.INTERRUPT,
+        });
+      }
       await ctx.mcp().callTool("sites.update_environment_variables", {
         project_id: projectId,
         remove: [key],
@@ -240,13 +253,20 @@ export function registerEnvCommands(define: DefineCommand): void {
           secretsSkipped += 1;
           lines.push(`# ${entry.key} (secret, value not readable; set it with sites env set)`);
         } else {
-          lines.push(`${entry.key}=${entry.value ?? ""}`);
+          lines.push(`${requireKey(entry.key)}=${JSON.stringify(entry.value ?? "")}`);
         }
       }
       const temporary = `${absolute}.${process.pid}.tmp`;
       fs.mkdirSync(path.dirname(absolute), { recursive: true });
-      fs.writeFileSync(temporary, lines.length ? lines.join("\n") + "\n" : "", { mode: 0o600 });
-      fs.renameSync(temporary, absolute);
+      fs.writeFileSync(temporary, lines.length ? lines.join("\n") + "\n" : "", {
+        mode: 0o600,
+        flag: "wx",
+      });
+      try {
+        fs.renameSync(temporary, absolute);
+      } finally {
+        fs.rmSync(temporary, { force: true });
+      }
       return {
         data: {
           project_id: projectId,
@@ -268,17 +288,20 @@ export function registerEnvCommands(define: DefineCommand): void {
 
   define({
     path: ["env", "push"],
+    nativeDryRun: true,
     flags: ["env-file", "dry-run"],
     positionals: { min: 0, max: 0 },
     summary: "Upload variables from a .env file",
     usage: "sites env push [--env-file .env] [--dry-run]",
     run: async (
       ctx,
-    ): Promise<CommandResult<{ project_id: string; keys: string[]; dry_run: boolean }>> => {
-      const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
+    ): Promise<CommandResult<{ project_id: string | null; keys: string[]; dry_run: boolean }>> => {
       const file = stringOption(ctx.options, "env-file") ?? ".env";
       const entries = readEnvFile(ctx.root, file);
       const dryRun = booleanOption(ctx.options, "dry-run");
+      const projectId = dryRun
+        ? projectIdFromManifest(ctx.root)
+        : await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       if (!dryRun && entries.length) {
         await ctx.mcp().callTool("sites.update_environment_variables", {
           project_id: projectId,

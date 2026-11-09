@@ -54,22 +54,24 @@ export default defineConfig({
     clean: true,
     deps: {
       neverBundle: ["rolldown"],
+      alwaysBundle: ["tinyexec"],
     },
     plugins: [docsBundlePlugin()],
     banner: "#!/usr/bin/env node",
     outputOptions: {
       entryFileNames: "cli.mjs",
+      codeSplitting: false,
     },
   },
   lint: {
-    ignorePatterns: ["dist/**"],
+    ignorePatterns: ["dist/**", ".pi/**"],
     options: {
       typeAware: true,
       typeCheck: true,
     },
   },
   fmt: {
-    ignorePatterns: ["dist/**", "docs/**", "aube-lock.yaml"],
+    ignorePatterns: ["dist/**", ".pi/**", "docs/**", "aube-lock.yaml"],
   },
   test: {
     include: ["test/**/*.test.ts"],

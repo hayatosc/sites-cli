@@ -40,7 +40,7 @@ function validateHostname(raw: string | undefined): string {
   const hostname = raw.toLowerCase().replace(/\.$/, "");
   if (!HOSTNAME_PATTERN.test(hostname)) {
     throw new CliError("USAGE_INVALID_HOSTNAME", `Invalid hostname: ${raw}`, {
-      exitCode: EXIT.PREFLIGHT,
+      exitCode: EXIT.USAGE,
       hint: "Use a lowercase DNS name such as www.example.com.",
     });
   }
@@ -102,6 +102,36 @@ function renderDomainInstructions(ctx: CommandContext, value: DomainData): void 
   }
 }
 
+async function waitForDomain(
+  ctx: CommandContext,
+  projectId: string,
+  domain: CustomDomainRecord,
+  timeout: number,
+): Promise<CustomDomainRecord> {
+  const deadline = Date.now() + timeout * 1000;
+  while (
+    !["active", "active_redeploying"].includes(String(domain.status)) &&
+    Date.now() < deadline
+  ) {
+    await sleep(Math.min(5000, Math.max(0, deadline - Date.now())));
+    domain = await ctx.mcp().callTool<CustomDomainRecord>("sites.refresh_custom_domain_status", {
+      project_id: projectId,
+      custom_domain_id: domain.id,
+    });
+  }
+  if (!["active", "active_redeploying"].includes(String(domain.status))) {
+    throw new CliError(
+      "DOMAIN_TIMEOUT",
+      `${domain.hostname ?? domain.id} is still ${domain.status ?? "pending"}.`,
+      {
+        exitCode: EXIT.NETWORK,
+        hint: "Create the DNS records, then retry `sites domains refresh <hostname> --wait`.",
+      },
+    );
+  }
+  return domain;
+}
+
 export function registerDomainCommands(define: DefineCommand): void {
   define({
     path: ["domains", "add"],
@@ -111,35 +141,15 @@ export function registerDomainCommands(define: DefineCommand): void {
     usage: "sites domains add <hostname> [--wait] [--timeout 900]",
     run: async (ctx): Promise<CommandResult<DomainData>> => {
       const hostname = validateHostname(ctx.positionals[0]);
+      const timeout = integerOption(ctx.options, "timeout", { min: 1, max: 3600, fallback: 900 });
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       let domain = await ctx.mcp().callTool<CustomDomainRecord>("sites.add_custom_domain", {
         project_id: projectId,
         hostname,
       });
-      const timeout = integerOption(ctx.options, "timeout", { min: 1, max: 3600, fallback: 900 });
       if (ctx.options.wait && domain.id) {
         ctx.log(`waiting for ${hostname} to become active`);
-        const deadline = Date.now() + timeout * 1000;
-        while (Date.now() < deadline) {
-          if (["active", "active_redeploying"].includes(String(domain.status))) break;
-          await sleep(5000);
-          domain = await ctx
-            .mcp()
-            .callTool<CustomDomainRecord>("sites.refresh_custom_domain_status", {
-              project_id: projectId,
-              custom_domain_id: domain.id,
-            });
-        }
-        if (domain.status !== "active") {
-          throw new CliError(
-            "DOMAIN_TIMEOUT",
-            `${hostname} is still ${domain.status ?? "pending"}.`,
-            {
-              exitCode: EXIT.NETWORK,
-              hint: "Create the DNS records, then retry `sites domains refresh <hostname> --wait`.",
-            },
-          );
-        }
+        domain = await waitForDomain(ctx, projectId, domain, timeout);
       }
       const data = domainData(projectId, domain);
       ctx.success(`Added custom domain ${hostname}`);
@@ -187,20 +197,37 @@ export function registerDomainCommands(define: DefineCommand): void {
   });
 
   define({
-    path: ["domains", "refresh"],
-    flags: [],
+    path: ["domains", "get"],
     positionals: { min: 1, max: 1, names: ["hostname|custom_domain_id"] },
-    summary: "Refresh custom domain verification",
-    usage: "sites domains refresh <hostname|custom_domain_id>",
+    summary: "Get a custom domain and its validation status",
+    usage: "sites domains get <hostname|custom_domain_id>",
     run: async (ctx): Promise<CommandResult<DomainData>> => {
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
+      return {
+        data: domainData(projectId, await resolveDomain(ctx, projectId, ctx.positionals[0])),
+        human: (value) => renderDomainInstructions(ctx, value),
+      };
+    },
+  });
+
+  define({
+    path: ["domains", "refresh"],
+    flags: ["wait", "timeout"],
+    positionals: { min: 1, max: 1, names: ["hostname|custom_domain_id"] },
+    summary: "Refresh custom domain verification",
+    usage: "sites domains refresh <hostname|custom_domain_id> [--wait] [--timeout 900]",
+    run: async (ctx): Promise<CommandResult<DomainData>> => {
+      const timeout = integerOption(ctx.options, "timeout", { min: 1, max: 3600, fallback: 900 });
+      const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const domain = await resolveDomain(ctx, projectId, ctx.positionals[0]);
-      const refreshed = await ctx
+      let refreshed = await ctx
         .mcp()
         .callTool<CustomDomainRecord>("sites.refresh_custom_domain_status", {
           project_id: projectId,
           custom_domain_id: domain.id,
         });
+      if (ctx.options.wait && refreshed.id)
+        refreshed = await waitForDomain(ctx, projectId, refreshed, timeout);
       ctx.success(`Refreshed custom domain ${domain.hostname ?? domain.id ?? "domain"}`);
       return {
         data: domainData(projectId, refreshed),

@@ -1,4 +1,4 @@
-// Single-ESM Worker bundling with the bundled Rolldown (plan §7.3).
+// Single-ESM Worker bundling with the CLI's regular Rolldown dependency.
 
 import fs from "node:fs";
 import path from "node:path";

@@ -6,6 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { createMockMcp, runCli, tempDir } from "./helpers/index.ts";
 import type { MockCall, MockResponse } from "./helpers/index.ts";
+import { writeState } from "../src/manifest.ts";
+import { parseDotenv } from "../src/env-file.ts";
 
 function project(): string {
   const root = tempDir("sites-site-management-");
@@ -30,12 +32,26 @@ function callsNamed(calls: MockCall[], name: string): MockCall[] {
 
 test("versions list and rollback use the recorded access mode", async () => {
   const root = project();
+  writeState(root, { last_deployment_id: "dep_current", last_version_id: "appgprj_1~appgver_2" });
   const mock = await createMockMcp((call) => {
+    if (call.name === "sites.get_deployment_status")
+      return structured({
+        status: "succeeded",
+        version_id:
+          call.args?.deployment_id === "dep_current"
+            ? "appgprj_1~appgver_2"
+            : "appgprj_1~appgver_1",
+      });
     if (call.name === "sites.list_site_versions") {
       return structured({
         items: [
           { id: "appgprj_1~appgver_2", version_number: 2, source: { commit_sha: "bbbb" } },
-          { id: "appgprj_1~appgver_1", version_number: 1, source: { commit_sha: "aaaa" } },
+          {
+            id: "appgprj_1~appgver_1",
+            version_number: 1,
+            source: { commit_sha: "aaaa" },
+            deployment_id: "dep_old",
+          },
         ],
       });
     }
@@ -54,7 +70,7 @@ test("versions list and rollback use the recorded access mode", async () => {
     assert.equal(listed.code, 0, listed.stderr);
     assert.equal(JSON.parse(listed.stdout).data.items.length, 2);
 
-    const rolled = await runCli(["versions", "rollback", "--previous"], {
+    const rolled = await runCli(["versions", "rollback", "--previous", "--force"], {
       cwd: root,
       env: { SITES_MCP_URL: mock.url },
     });
@@ -97,7 +113,10 @@ test("env get refuses secrets and pull writes a 0600 file", async () => {
     });
     assert.equal(pulled.code, 0, pulled.stderr);
     const content = fs.readFileSync(outFile, "utf8");
-    assert.match(content, /^API_URL=https:\/\/example\.test$/m);
+    assert.equal(
+      parseDotenv(content, { env: {}, expand: false, processOverrides: false })[0].value,
+      "https://example.test",
+    );
     assert.match(content, /# TOKEN \(secret/);
     assert.equal(fs.statSync(outFile).mode & 0o777, 0o600);
   } finally {

@@ -19,6 +19,7 @@ interface StatusData {
 }
 
 interface LogEvent {
+  id?: string;
   timestamp?: string;
   level?: string;
   message?: string;
@@ -61,14 +62,13 @@ function parseSince(value: string): number {
     });
   }
   const amount = Number(match[1]);
-  if (!Number.isFinite(amount) || amount <= 0) {
+  const minutes = amount * (match[2] === "d" ? 1440 : match[2] === "h" ? 60 : 1);
+  if (!Number.isSafeInteger(minutes) || minutes <= 0) {
     throw new CliError("USAGE_INVALID_VALUE", `Invalid --since value: ${value}`, {
       exitCode: EXIT.USAGE,
     });
   }
-  if (match[2] === "m") return amount;
-  if (match[2] === "h") return amount * 60;
-  return amount * 60 * 24;
+  return minutes;
 }
 
 function messageOf(event: LogEvent): string {
@@ -80,6 +80,7 @@ function messageOf(event: LogEvent): string {
 export function registerDeployCommands(define: DefineCommand): void {
   define({
     path: ["deploy"],
+    nativeDryRun: true,
     flags: [
       "dry-run",
       "prebuilt",
@@ -156,7 +157,7 @@ export function registerDeployCommands(define: DefineCommand): void {
           });
         }
         ctx.log(current.status);
-        await sleep(interval * 1000);
+        await sleep(Math.min(interval * 1000, Math.max(0, deadline - Date.now())));
         current = toStatus(
           await ctx.mcp().callTool<DeploymentRecord>("sites.get_deployment_status", {
             project_id: projectId,
@@ -192,6 +193,16 @@ export function registerDeployCommands(define: DefineCommand): void {
       const limit = integerOption(ctx.options, "limit", { min: 1, max: 1000, fallback: 100 });
       const errorsOnly = Boolean(ctx.options["errors-only"]) && !ctx.options.all;
       const follow = Boolean(ctx.options.follow);
+      const baseInterval = Number(ctx.env.SITES_LOG_INTERVAL_MS ?? 5000);
+      if (follow && (!Number.isFinite(baseInterval) || baseInterval < 1))
+        throw new CliError("USAGE_INVALID_VALUE", "SITES_LOG_INTERVAL_MS must be positive.", {
+          exitCode: EXIT.USAGE,
+        });
+      let stopped = false;
+      if (follow)
+        registerCleanup(() => {
+          stopped = true;
+        });
       const events: LogEvent[] = [];
       const seen = new Set<string>();
 
@@ -204,10 +215,15 @@ export function registerDeployCommands(define: DefineCommand): void {
         });
         for (const raw of result.events ?? []) {
           const event = raw as LogEvent;
-          const key = `${event.timestamp ?? ""}|${messageOf(event)}`;
+          const key = `${event.id ?? ""}|${event.timestamp ?? ""}|${event.level ?? ""}|${messageOf(event)}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          events.push(event);
+          if (!follow) events.push(event);
+          if (seen.size > limit * 10) {
+            const oldest = seen.keys().next().value;
+            if (oldest !== undefined) seen.delete(oldest);
+          }
+          if (ctx.json && follow) ctx.stdout.write(JSON.stringify(event) + "\n");
           if (!ctx.json) {
             ctx.stdout.write(
               `${event.timestamp ?? "-"} ${event.level ?? "info"} ${messageOf(event)}\n`,
@@ -218,14 +234,10 @@ export function registerDeployCommands(define: DefineCommand): void {
 
       await fetchOnce();
       if (follow) {
-        let stopped = false;
-        registerCleanup(() => {
-          stopped = true;
-        });
-        const baseInterval = Number(ctx.env.SITES_LOG_INTERVAL_MS ?? 5000);
         let interval = baseInterval;
         while (!stopped) {
           await sleep(interval);
+          if (stopped) break;
           try {
             await fetchOnce();
             interval = baseInterval;
@@ -242,6 +254,7 @@ export function registerDeployCommands(define: DefineCommand): void {
 
       return {
         data: { events, errors_only: errorsOnly },
+        ...(follow ? { raw: "" } : {}),
         human: (value) => {
           if (!value.events.length) ctx.stdout.write("No log events.\n");
         },

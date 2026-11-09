@@ -61,12 +61,12 @@ test("--version and help", async () => {
   assert.match(groupHelp.stdout, /whoami/);
 });
 
-test("usage errors exit 2 with JSON by default", async () => {
+test("structured usage errors retain detailed exit codes with --json", async () => {
   const noCommand = await runCli([]);
-  assert.equal(noCommand.code, 2);
-  assert.equal(JSON.parse(noCommand.stderr).error.code, "USAGE_MISSING_COMMAND");
+  assert.equal(noCommand.code, 0);
+  assert.match(noCommand.stdout, /Usage: sites/);
 
-  const unknown = await runCli(["build"]);
+  const unknown = await runCli(["bould"]);
   assert.equal(unknown.code, 2);
   assert.equal(JSON.parse(unknown.stderr).error.code, "USAGE_UNKNOWN_COMMAND");
 
@@ -79,11 +79,11 @@ test("usage errors exit 2 with JSON by default", async () => {
   assert.equal(JSON.parse(extraArg.stderr).error.code, "USAGE_UNEXPECTED_ARGUMENT");
 
   const human = await runCli(["bogus", "--human"]);
-  assert.equal(human.code, 2);
+  assert.equal(human.code, 1);
   assert.match(human.stderr, /^Error: /);
 
   const typo = await runCli(["deply", "--human"]);
-  assert.equal(typo.code, 2);
+  assert.equal(typo.code, 1);
   assert.match(typo.stderr, /Did you mean `sites deploy`/);
 });
 

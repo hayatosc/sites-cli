@@ -38,6 +38,15 @@ export class CliError extends Error {
   }
 }
 
+/** Stop a delegated command without printing an error or running later effects. */
+export class CommandExit extends Error {
+  readonly exitCode: number;
+  constructor(exitCode: number) {
+    super(`Command exited with code ${exitCode}.`);
+    this.exitCode = exitCode;
+  }
+}
+
 export function usageError(code: string, message: string, options: CliErrorOptions = {}): CliError {
   return new CliError(code, message, { exitCode: EXIT.USAGE, ...options });
 }

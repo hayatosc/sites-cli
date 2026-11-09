@@ -7,7 +7,7 @@ import type { DeploymentRecord, SiteRecord } from "../api-types.ts";
 import { authFilePath, decodeJwtExpiry } from "../auth.ts";
 import { inspectDist } from "../package-site.ts";
 import { findWranglerConfig } from "../wrangler.ts";
-import { readManifest, readState } from "../manifest.ts";
+import { readManifest, readState, type Manifest } from "../manifest.ts";
 import { CliError } from "../errors.ts";
 import { currentHead, dirtyFiles, git, gitAvailable, isInsideGitRepo } from "../git.ts";
 
@@ -142,11 +142,11 @@ export function registerDoctorCommands(define: DefineCommand): void {
       const authCheck = await checkAuth(ctx.env);
       checks.push(authCheck);
 
-      let manifest: Record<string, unknown> | null = null;
+      let manifest: Manifest | null = null;
       let projectId: string | null = null;
       try {
         const loaded = readManifest(ctx.root);
-        manifest = loaded.manifest as Record<string, unknown>;
+        manifest = loaded.manifest;
         projectId = (manifest.project_id as string | null) ?? null;
         const problems = manifestProblems(manifest);
         checks.push(
@@ -176,7 +176,7 @@ export function registerDoctorCommands(define: DefineCommand): void {
 
       if (manifest) {
         try {
-          const dist = inspectDist(ctx.root, manifest as never);
+          const dist = inspectDist(ctx.root, manifest);
           checks.push(check(7, "dist", "ok", `${dist.kind} artifact, ${dist.fileCount} files.`));
         } catch (error) {
           const message = error instanceof CliError ? error.message : (error as Error).message;
@@ -263,9 +263,8 @@ export function registerDoctorCommands(define: DefineCommand): void {
         checks.push(check(5, "project ownership", "skip", "Skipped by --offline."));
         checks.push(check(12, "deployment state", "skip", "Skipped by --offline."));
       } else {
-        const client = ctx.mcp();
         try {
-          const info = await client.initialize();
+          const info = await ctx.mcp().initialize();
           checks.push(
             check(
               3,
@@ -283,7 +282,7 @@ export function registerDoctorCommands(define: DefineCommand): void {
           checks.push(check(5, "project ownership", "skip", "Codex credentials are unavailable."));
         } else {
           try {
-            const site = await client.callTool<SiteRecord>("sites.get_site", {
+            const site = await ctx.mcp().callTool<SiteRecord>("sites.get_site", {
               project_id: projectId,
             });
             const remoteId = site.id ?? site.project_id;
@@ -307,13 +306,12 @@ export function registerDoctorCommands(define: DefineCommand): void {
           checks.push(check(12, "deployment state", "skip", "Codex credentials are unavailable."));
         } else {
           try {
-            const deployment = await client.callTool<DeploymentRecord>(
-              "sites.get_deployment_status",
-              {
+            const deployment = await ctx
+              .mcp()
+              .callTool<DeploymentRecord>("sites.get_deployment_status", {
                 project_id: projectId,
                 deployment_id: state.last_deployment_id,
-              },
-            );
+              });
             checks.push(
               check(
                 12,
@@ -344,7 +342,7 @@ export function registerDoctorCommands(define: DefineCommand): void {
                     ? "-"
                     : "✗";
             ctx.stdout.write(
-              `${mark} ${String(entry.id).padStart(2)} ${entry.name}: ${entry.detail}\n`,
+              `${mark} ${String(entry.id).padStart(2)} ${entry.name}${ctx.options.verbose || entry.status !== "ok" ? `: ${entry.detail}` : ""}\n`,
             );
           }
           ctx.stdout.write(`${value.failures} failure(s), ${value.warnings} warning(s)\n`);

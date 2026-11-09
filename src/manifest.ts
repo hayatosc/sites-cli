@@ -32,6 +32,9 @@ export interface LocalState {
   last_version_id?: string;
   last_commit_sha?: string;
   last_artifact_hash?: string;
+  last_uploaded_version_id?: string;
+  last_uploaded_commit_sha?: string;
+  last_uploaded_artifact_hash?: string;
   tags?: Record<string, string>;
   updated_at?: string;
   [key: string]: unknown;

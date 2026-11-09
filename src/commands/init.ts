@@ -5,7 +5,8 @@ import path from "node:path";
 import { CliError, EXIT } from "../errors.ts";
 import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
 import { git, gitAvailable } from "../git.ts";
-import { MANIFEST_DIR, MANIFEST_NAME } from "../manifest.ts";
+import { MANIFEST_DIR, MANIFEST_NAME, manifestPath, readManifest } from "../manifest.ts";
+import { detectProject } from "../project-detect.ts";
 
 const TEMPLATES = ["static", "worker-esm"] as const;
 type Template = (typeof TEMPLATES)[number];
@@ -57,7 +58,7 @@ if (template === "worker-esm") {
 
 interface InitData {
   directory: string;
-  template: Template;
+  template: Template | "existing";
   git_initialized: boolean;
   files: string[];
 }
@@ -82,7 +83,7 @@ export function registerInitCommands(define: DefineCommand): void {
     summary: "Initialize a site project",
     usage: "sites init [dir] [--template static|worker-esm] [--force] [--no-git]",
     async run(ctx: CommandContext): Promise<CommandResult<InitData>> {
-      const target = ctx.positionals[0] ? path.resolve(ctx.root, ctx.positionals[0]) : ctx.root;
+      const target = ctx.positionals[0] ? path.resolve(ctx.cwd, ctx.positionals[0]) : ctx.cwd;
       const template = (
         typeof ctx.options.template === "string" ? ctx.options.template : "static"
       ) as Template;
@@ -93,7 +94,22 @@ export function registerInitCommands(define: DefineCommand): void {
         });
       }
       const force = Boolean(ctx.options.force);
-      if (fs.existsSync(target) && !force) {
+      if (fs.existsSync(manifestPath(target)) && readManifest(target).manifest.project_id) {
+        throw new CliError(
+          "CONFLICT_LINKED_PROJECT",
+          "This directory is already linked to a site.",
+          {
+            exitCode: EXIT.PREFLIGHT,
+            hint: "Keep the existing manifest or choose a different directory.",
+          },
+        );
+      }
+      const existing =
+        !ctx.options.template &&
+        (fs.existsSync(path.join(target, "package.json")) ||
+          fs.existsSync(path.join(target, "index.html")) ||
+          fs.existsSync(path.join(target, "public", "index.html")));
+      if (fs.existsSync(target) && !force && !existing) {
         const entries = fs.readdirSync(target).filter((name) => name !== ".git");
         if (entries.length) {
           throw new CliError("CONFLICT_DIRECTORY_NOT_EMPTY", `Directory is not empty: ${target}`, {
@@ -104,30 +120,43 @@ export function registerInitCommands(define: DefineCommand): void {
       }
       fs.mkdirSync(target, { recursive: true });
       const files: string[] = [];
+      const detection = existing ? detectProject(target) : null;
+      const worker = existing ? detection?.kind === "worker" : template === "worker-esm";
+      const manifest = worker
+        ? { project_id: null }
+        : { project_id: null, static: { directory: "dist", not_found_handling: "404-page" } };
       writeIfAllowed(
         path.join(target, MANIFEST_DIR, MANIFEST_NAME),
-        `${JSON.stringify(template === "static" ? { project_id: null, static: { directory: "dist", not_found_handling: "404-page" } } : { project_id: null }, null, 2)}\n`,
+        `${JSON.stringify(manifest, null, 2)}\n`,
         force,
         files,
       );
-      if (template === "static") {
-        writeIfAllowed(path.join(target, "public", "index.html"), STATIC_HTML, force, files);
-      } else {
-        writeIfAllowed(path.join(target, "worker", "index.js"), WORKER_INDEX, force, files);
+      if (!existing) {
+        if (template === "static") {
+          writeIfAllowed(path.join(target, "public", "index.html"), STATIC_HTML, force, files);
+        } else {
+          writeIfAllowed(path.join(target, "worker", "index.js"), WORKER_INDEX, force, files);
+        }
+        writeIfAllowed(path.join(target, "scripts", "build.mjs"), BUILD_SCRIPT, force, files);
+        writeIfAllowed(
+          path.join(target, "package.json"),
+          `${JSON.stringify({ private: true, type: "module", scripts: { build: `node scripts/build.mjs ${template}` } }, null, 2)}\n`,
+          force,
+          files,
+        );
       }
-      writeIfAllowed(path.join(target, "scripts", "build.mjs"), BUILD_SCRIPT, force, files);
-      writeIfAllowed(
-        path.join(target, "package.json"),
-        `${JSON.stringify({ private: true, type: "module", scripts: { build: `node scripts/build.mjs ${template}` } }, null, 2)}\n`,
-        force,
-        files,
+      const ignoreFile = path.join(target, ".gitignore");
+      const ignore = fs.existsSync(ignoreFile) ? fs.readFileSync(ignoreFile, "utf8") : "";
+      const additions = ["dist/", ".sites/", "node_modules/"].filter(
+        (entry) => !ignore.split(/\r?\n/).includes(entry),
       );
-      writeIfAllowed(
-        path.join(target, ".gitignore"),
-        "dist/\n.sites/\nnode_modules/\n",
-        force,
-        files,
-      );
+      if (additions.length) {
+        fs.writeFileSync(
+          ignoreFile,
+          `${ignore}${ignore && !ignore.endsWith("\n") ? "\n" : ""}${additions.join("\n")}\n`,
+        );
+        files.push(ignoreFile);
+      }
 
       let gitInitialized = false;
       if (!ctx.options["no-git"]) {
@@ -145,9 +174,14 @@ export function registerInitCommands(define: DefineCommand): void {
         }
       }
 
-      ctx.success(`Initialized ${template} site in ${target}`);
+      ctx.success(`Initialized ${existing ? "existing" : template} site in ${target}`);
       return {
-        data: { directory: target, template, git_initialized: gitInitialized, files },
+        data: {
+          directory: target,
+          template: existing ? "existing" : template,
+          git_initialized: gitInitialized,
+          files,
+        },
         human: (value) => {
           ctx.stdout.write(`Initialized ${value.template} site in ${value.directory}\n`);
           if (!value.git_initialized) ctx.stdout.write("Git repository: not initialized\n");

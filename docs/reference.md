@@ -2,20 +2,25 @@
 
 ## Global flags
 
-Global flags may appear before or after a command.
+Global flags may appear before, within or after a command path.
 
 | Flag               | Description                     |
 | ------------------ | ------------------------------- |
-| `--json`           | JSON output (default)           |
+| `--json`           | Opt in to legacy JSON envelope and detailed exit codes           |
 | `--human`          | Human-readable output           |
-| `-q`, `--quiet`    | Suppress progress output (`--quiet=false` re-enables) |
-| `--profile <name>` | Profile to use                  |
+| `-q`, `--quiet`    | Suppress results and progress, not errors (`--quiet=false` re-enables) |
+| `--profile <name>` | Reserved; rejected (authentication is owned by Codex)                  |
 | `--no-color`       | Disable color                   |
 | `-y`, `--yes`      | Skip confirmation               |
+| `--dry-run`        | Preview without remote side effects (native builds may write locally) |
 | `-h`, `--help`     | Show help                       |
 | `-v`, `--version`  | Show the version                |
 
-Color is also disabled when `NO_COLOR` is set.
+Bare JSON is the default; errors use human-readable stderr and exit 1 (130 on interruption). Delegated `dev`/build subprocesses retain their own exit status (also during deploy/version creation). `--json` restores `{ok,data,meta}` and structured errors. `--human` is an extension; it cannot be combined with `--json`. `logs --follow` streams NDJSON, not an envelope. Color is disabled when `NO_COLOR` is set.
+
+Cloudflare-only `--zone/-z`, `--mode/-m`, `--local`, `--persist-to`, `--temporary-account` and `--event-code` are explicitly rejected; temporary-account event secrets are never printed or forwarded.
+
+Generic dry-run validates parsing only and omits values. Deploy/version previews may build locally, migrate stages conversion, and create/env push validate local inputs. Boolean flags accept `=true`/`=false`, space-separated `true`/`false`, and negation. For example, `sites --quiet false cli search deploy` prints results. The last boolean setting wins; `--json false` and `--json=false` both restore default output/error behavior even for parsing errors. `--` ends option parsing. Missing, empty or duplicate singleton string flags are errors.
 
 ## Commands
 
@@ -26,21 +31,29 @@ Color is also disabled when `NO_COLOR` is set.
 | `create <slug>`                                      | Create a site and save its ID            |
 | `list`                                               | List sites                               |
 | `info [project\|slug]`                               | Show site details                        |
+| `build`                                              | Build and validate locally without deploying |
+| `dev [-- <args..>]`                                  | Run the package dev script, no Sites runtime emulation |
+| `migrate [path]`                                     | Convert a Wrangler directory or config file |
+| `complete [bash\|zsh\|fish\|powershell]`           | Print completion setup (does not edit shell rc files); `complete -- <words..>` handles flags/values in command paths |
+| `migrations create <message>`                       | Scaffold local SQL (`--dir drizzle`, optional `--pattern`) |
+| `types`                                             | Generate binding declarations (`--out .openai/types.d.ts`, `--force`) |
 | `deploy`                                             | Build and deploy                         |
 | `status [deployment_id]`                             | Show deployment status                   |
 | `logs`                                               | Fetch Worker logs                        |
+| `versions create`                                    | Upload a version without activating it |
 | `versions list`                                      | List versions                            |
-| `versions show <version_id>`                         | Show a version                           |
+| `versions get\|show <version_id>`                         | Show a version                           |
 | `versions rollback <version_id\|--previous>`         | Redeploy a previous version              |
 | `env list`                                           | List environment variables               |
 | `env get <key>`                                      | Get an environment variable              |
-| `env set <key> <value>`                              | Set an environment variable              |
+| `env set <KEY>=<VALUE>`                              | Set an environment variable              |
 | `env unset <key>`                                    | Remove an environment variable           |
 | `env pull`                                           | Write environment variables locally      |
 | `env push`                                           | Apply local environment variables        |
 | `access show`                                        | Show access mode                         |
 | `access set`                                         | Change access mode                       |
 | `domains add <hostname>`                             | Add a custom domain                      |
+| `domains get <hostname\|id>`                        | Get domain status and DNS instructions |
 | `domains list`                                       | List custom domains                      |
 | `domains refresh <hostname\|id>`                     | Refresh domain status                    |
 | `domains remove <hostname\|id>`                      | Remove a custom domain                   |
@@ -51,7 +64,7 @@ Color is also disabled when `NO_COLOR` is set.
 | `doctor`                                             | Diagnose the environment and connection  |
 | `cli search <query>`                                 | Rank up to five commands by intent       |
 | `docs search <query>`                                | Search this manual                       |
-| `schema <tool>`                                      | Print an MCP tool input schema           |
+| `schema <tool\|command..>`                          | Print MCP tool input schemas           |
 | `schema --list`                                      | List MCP tools and descriptions          |
 
 Run `sites <command> --help` for the flags of a command.
@@ -75,15 +88,15 @@ Normal usage does not require any of these variables.
 
 ## Search and schema output
 
-`cli search` returns up to five `{command, summary}` objects. Commands include the `sites` prefix, so a result can be run as printed. The ranking uses MiniSearch with prefix matching, fuzzy matching, and boosted command and summary fields, matching the `cf` CLI.
+`cli search` returns up to five `{command, summary}` objects. Commands include the `sites` prefix, so a result can be run as printed. Ranking uses dependency-free weighted substring matching (command/summary/description/keywords/context weights 8/5/2/5/0.5), exact-command priority, and limited edit-distance correction for words of at least five characters. Rankings can differ from the `cf` CLI; this is not semantic or translated search.
 
 `docs search` returns up to five `{title, description, url, file, line}` objects. `url` points at the matching section in the GitHub-hosted manual; searches run entirely against the manual bundled into the CLI.
 
-`schema <tool>` returns the MCP tool's `{name, description, inputSchema}` object. `schema --list` returns `{name, description}` entries. An unknown or missing tool name is an error, as in `cf schema`.
+`schema <tool>` or `schema <command..>` returns the MCP tool's `{name, description, inputSchema}` object. `schema --list` returns `{name, description}` entries. An unknown or missing tool name is an error, as in `cf schema`. Multi-tool commands return multiple schemas. The hidden `tools` alias is equivalent to `schema --list`; hidden aliases are excluded from search and completion.
 
 ## State file
 
-`.sites/state.json` is managed by the CLI and should not be edited. Tags created by `deploy --tag` are stored there.
+`.sites/state.json` is managed by the CLI and should not be edited. Tags created by `deploy --tag` or `versions create --tag` are stored there. Uploaded version/SHA/hash fields are separate from the last successful deployment, so saving a version does not claim to activate it.
 
 ## Auth file
 

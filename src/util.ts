@@ -90,6 +90,22 @@ export function parseIntegerOption(
   return value;
 }
 
+const signalHandlers = new Set<(signal: NodeJS.Signals) => void>();
+
+/** A long-running delegate owns interruption until its output and exit are drained. */
+export function registerSignalHandler(handler: (signal: NodeJS.Signals) => void): () => void {
+  signalHandlers.add(handler);
+  return () => {
+    signalHandlers.delete(handler);
+  };
+}
+
+export function forwardSignal(signal: NodeJS.Signals): boolean {
+  if (!signalHandlers.size) return false;
+  for (const handler of signalHandlers) handler(signal);
+  return true;
+}
+
 const cleanupHandlers: Array<() => void> = [];
 
 /** Registers a best-effort cleanup callback (temp files) for SIGINT/SIGTERM. */

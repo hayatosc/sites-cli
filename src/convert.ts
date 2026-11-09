@@ -45,6 +45,8 @@ export interface ConversionReport {
 export interface ConvertOptions {
   root: string;
   allowUnsupported: string[];
+  dryRun?: boolean;
+  configPath?: string;
   log: (text: string) => void;
 }
 
@@ -116,7 +118,7 @@ function issue(code: string, detail: string, kind: string): ConversionBlocked {
 export async function convertWranglerProject(
   options: ConvertOptions,
 ): Promise<ConversionReport | null> {
-  const found = findWranglerConfig(options.root);
+  const found = findWranglerConfig(options.root, options.configPath);
   if (!found) return null;
   const { config } = found;
   const warnings: ConversionWarning[] = [];
@@ -257,7 +259,8 @@ export async function convertWranglerProject(
     }
 
     // Now that the conversion will succeed, write outputs.
-    const dist = path.join(options.root, "dist");
+    const outputRoot = options.dryRun ? staging : options.root;
+    const dist = path.join(outputRoot, "dist");
     if (!main) {
       fs.rmSync(dist, { recursive: true, force: true });
       fs.mkdirSync(dist, { recursive: true });
@@ -343,7 +346,7 @@ export async function convertWranglerProject(
       });
     }
     if (config.vars && Object.keys(config.vars).length > 0) {
-      const stateDir = path.join(options.root, ".sites");
+      const stateDir = path.join(outputRoot, ".sites");
       fs.mkdirSync(stateDir, { recursive: true });
       fs.writeFileSync(
         path.join(stateDir, "conversion.json"),
@@ -355,7 +358,7 @@ export async function convertWranglerProject(
     if (slug) {
       changed.unshift(`name → slug "${slug}"`);
     }
-    writeManifest(options.root, manifest);
+    writeManifest(outputRoot, manifest);
     changed.push(`${found.relative} → ${path.relative(options.root, manifestPath(options.root))}`);
 
     const outputs = [

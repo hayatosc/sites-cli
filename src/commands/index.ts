@@ -14,6 +14,9 @@ import { registerAnalyticsCommands } from "./analytics.ts";
 import { registerOpenDeleteCommands } from "./open.ts";
 import { registerDoctorCommands } from "./doctor.ts";
 import { registerDocsCommands } from "./docs.ts";
+import { registerLocalCommands } from "./local.ts";
+import { registerMigrationCommands } from "./migrations.ts";
+import { registerTypeCommands } from "./types.ts";
 
 export function createCommands(): CommandDefinition[] {
   const commands: CommandDefinition[] = [];
@@ -32,6 +35,26 @@ export function createCommands(): CommandDefinition[] {
   registerAnalyticsCommands(define);
   registerOpenDeleteCommands(define);
   registerDoctorCommands(define);
+  registerLocalCommands(define, commands);
+  registerMigrationCommands(define);
+  registerTypeCommands(define);
   registerDocsCommands(define, commands);
+  const versionShow = commands.find((command) => command.path.join(" ") === "versions show");
+  if (versionShow)
+    define({
+      ...versionShow,
+      path: ["versions", "get"],
+      hidden: true,
+      usage: "sites versions get <version_id>",
+    });
+  const schema = commands.find((command) => command.path[0] === "schema");
+  if (schema)
+    define({
+      ...schema,
+      path: ["tools"],
+      hidden: true,
+      positionals: { min: 0, max: 0 },
+      run: (ctx) => schema.run({ ...ctx, options: { ...ctx.options, list: true } }),
+    });
   return commands;
 }

@@ -59,6 +59,10 @@ npx @hayatosc/sites deploy --secrets-file .env.secrets
 
 ## Build
 
+The external build's stdout/stderr stream immediately to stderr, never into the JSON result. Real terminal stdin/stderr are inherited, preserving framework TTY behavior; injected embedding streams are relayed. `--quiet` suppresses child progress. Child build failures retain their exit status. SIGINT/SIGTERM are forwarded and the CLI waits for shutdown; cancellation stops before any upload or deployment even if the child exits gracefully with code 0.
+
+The existing build safeguard is a 10-minute deadline, unlike cf's unbounded delegate build. A timed-out build receives SIGTERM and, after 5 seconds, SIGKILL if needed, then reports `BUILD_TIMEOUT`. This limit is separate from `deploy --timeout` (deployment polling). If a build takes longer, run it separately and use `--prebuilt`.
+
 The CLI detects the project the same way `cf` does before building:
 
 1. Read `package.json` and lockfiles to choose the package manager.
@@ -67,7 +71,7 @@ The CLI detects the project the same way `cf` does before building:
 4. Run the build through the detected package manager, or invoke the framework command with `npx`/`pnpm exec`/`yarn`/`bunx` when there is no script.
 5. Normalize the framework output directory (`dist`, `build`, `out`, `public`, `.output/public`, and similar) to `dist/`.
 
-The detection result (framework, package manager, build command, output directory, and warnings) is included in the deploy JSON as `data.detection`. Conflicting frameworks stop the build with `PREFLIGHT_MULTIPLE_FRAMEWORKS`.
+The detection result (framework, package manager, build command, output directory, and warnings) is included in the deploy JSON as `detection` (`data.detection` with explicit `--json`). Conflicting frameworks stop the build with `PREFLIGHT_MULTIPLE_FRAMEWORKS`.
 
 When no framework or build script is found, the CLI prepares output according to the project type:
 

@@ -127,7 +127,7 @@ export interface RunResult {
 
 export async function runCli(
   args: string[],
-  options: { env?: Env; cwd?: string; tty?: boolean } = {},
+  options: { env?: Env; cwd?: string; tty?: boolean; defaultOutput?: boolean } = {},
 ): Promise<RunResult> {
   const base: Env = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -143,7 +143,12 @@ export async function runCli(
   const err = new Collector();
   out.isTTY = options.tty ?? false;
   err.isTTY = options.tty ?? false;
-  const code = await main(args, {
+  // Existing contract tests explicitly exercise the backwards-compatible envelope.
+  const argv =
+    options.defaultOutput || args.some((arg) => arg.startsWith("--json") || arg === "--human")
+      ? args
+      : ["--json", ...args];
+  const code = await main(argv, {
     env,
     cwd: options.cwd ?? process.cwd(),
     stdout: out,

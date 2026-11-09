@@ -25,21 +25,32 @@ const ALIASES: Record<string, string> = {
 
 // All flags the CLI knows about. Each command declares the subset it accepts.
 export const FLAG_DEFS: Record<string, FlagDefinition> = {
-  json: { type: "boolean", description: "Print machine-readable JSON" },
+  json: { type: "boolean", description: "Print the Sites JSON envelope and structured errors" },
   human: { type: "boolean", description: "Print human-readable output" },
-  quiet: { type: "boolean", description: "Suppress progress and non-essential output" },
-  profile: { type: "string", description: "Credential profile (Codex credentials are shared)" },
+  quiet: { type: "boolean", description: "Suppress result and progress output" },
+  profile: { type: "string", description: "Unsupported: Sites shares Codex credentials" },
   "no-color": { type: "boolean", description: "Disable colors" },
   yes: { type: "boolean", description: "Assume yes for confirmation prompts" },
   help: { type: "boolean", description: "Show help" },
   version: { type: "boolean", description: "Show version" },
 
   // Cloudflare-only flags are rejected explicitly (plan §3.2).
-  zone: { type: "boolean", unsupported: "-z/--zone" },
+  zone: { type: "string", unsupported: "-z/--zone" },
+  "temporary-account": { type: "boolean", unsupported: "--temporary-account" },
+  "event-code": { type: "string", unsupported: "--event-code" },
   local: { type: "boolean", unsupported: "--local" },
   "persist-to": { type: "string", unsupported: "--persist-to" },
   mode: { type: "string", unsupported: "-m/--mode" },
 
+  dir: { type: "string", description: "Directory containing SQL migrations (default: drizzle)" },
+  pattern: {
+    type: "string",
+    description: "Top-level SQL pattern under --dir; only * and ? wildcards",
+  },
+  "include-runtime": {
+    type: "boolean",
+    description: "Unsupported: Sites does not expose versioned runtime types",
+  },
   check: { type: "boolean", description: "Connect to the MCP server and verify credentials" },
   limit: { type: "string", description: "Maximum number of items to return" },
   cursor: { type: "string", description: "Pagination cursor" },
@@ -93,14 +104,25 @@ export const FLAG_DEFS: Record<string, FlagDefinition> = {
   verbose: { type: "boolean", description: "Show details for every check" },
 };
 
-const GLOBAL_FLAGS = ["json", "human", "quiet", "profile", "no-color", "yes", "help", "version"];
+export const GLOBAL_FLAGS = [
+  "json",
+  "human",
+  "quiet",
+  "profile",
+  "no-color",
+  "yes",
+  "help",
+  "version",
+  "dry-run",
+];
 
 const GROUPS: Record<string, string[]> = {
   auth: ["whoami"],
-  versions: ["list", "show", "rollback"],
+  migrations: ["create"],
+  versions: ["list", "show", "get", "create", "rollback"],
   env: ["list", "get", "set", "unset", "pull", "push"],
   access: ["show", "set"],
-  domains: ["add", "list", "refresh", "remove"],
+  domains: ["add", "get", "list", "refresh", "remove"],
   analytics: ["summary", "events"],
   cli: ["search"],
   docs: ["search"],
@@ -124,17 +146,16 @@ function parseFlagToken(token: string): ParsedFlag {
   const equal = token.indexOf("=");
   const rawName = equal === -1 ? token : token.slice(0, equal);
   const inlineValue = equal === -1 ? undefined : token.slice(equal + 1);
-  if (rawName === "--no-quiet") return { name: "quiet", value: false };
+  if (rawName.startsWith("--no-") && !FLAG_DEFS[rawName.slice(2)]) {
+    const positive = rawName.slice(5);
+    if (FLAG_DEFS[positive]?.type === "boolean" && inlineValue === undefined) {
+      return { name: positive, value: false };
+    }
+  }
   const name = flagName(rawName);
   if (!name) return { unknown: token };
   const def = FLAG_DEFS[name];
   if (!def) return { unknown: token };
-  if (name === "quiet" && inlineValue !== undefined) {
-    if (inlineValue === "true" || inlineValue === "false") {
-      return { name, value: inlineValue === "true" };
-    }
-    throw usageError("USAGE_INVALID_FLAG_VALUE", "--quiet accepts only true or false.");
-  }
   if (def.unsupported) {
     throw usageError(
       "USAGE_UNSUPPORTED_FLAG",
@@ -146,14 +167,54 @@ function parseFlagToken(token: string): ParsedFlag {
   }
   if (def.type === "boolean") {
     if (inlineValue !== undefined) {
-      throw usageError("USAGE_INVALID_FLAG_VALUE", `Flag --${name} does not take a value.`);
+      if (inlineValue === "true" || inlineValue === "false") {
+        return { name, value: inlineValue === "true" };
+      }
+      throw usageError("USAGE_INVALID_FLAG_VALUE", `--${name} accepts only true or false.`);
     }
     return { name, value: true };
   }
   return { name, value: inlineValue, needsValue: inlineValue === undefined };
 }
 
-function editDistance(left: string, right: string): number {
+// Share argument boundaries between discovery, parsing, errors and completion.
+export function flagArgumentEnd(argv: string[], index: number): number {
+  const token = argv[index];
+  if (token.includes("=")) return index;
+  const name = flagName(token);
+  let def = name ? FLAG_DEFS[name] : undefined;
+  if (!def && name?.startsWith("no-") && FLAG_DEFS[name.slice(3)]?.type === "boolean")
+    def = FLAG_DEFS[name.slice(3)];
+  const next = argv[index + 1];
+  if (def?.type === "string" && next !== undefined && !next.startsWith("-")) return index + 1;
+  if (def?.type === "boolean" && /^(true|false)$/.test(next ?? "")) return index + 1;
+  return index;
+}
+
+// Parsing may fail before output flags are reached. Recover only presentation
+// options, using the same value boundaries and last-flag-wins semantics.
+export function errorOutputOptions(argv: string[]): Record<string, boolean> {
+  const options: Record<string, boolean> = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === "--") break;
+    if (!argv[i].startsWith("-")) continue;
+    const end = flagArgumentEnd(argv, i);
+    try {
+      const parsed = parseFlagToken(argv[i]);
+      if (
+        (parsed.name === "json" || parsed.name === "no-color") &&
+        typeof parsed.value === "boolean"
+      )
+        options[parsed.name] = end > i ? argv[end] === "true" : parsed.value;
+    } catch {
+      // Keep the original parse error; malformed/unrelated flags set no mode.
+    }
+    i = end;
+  }
+  return options;
+}
+
+export function editDistance(left: string, right: string): number {
   const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
   for (let i = 1; i <= left.length; i += 1) {
     let diagonal = previous[0];
@@ -193,9 +254,7 @@ function resolveCommand(argv: string[], commands: CommandDefinition[]): Resolved
     const token = argv[i];
     if (token === "--") break;
     if (token.startsWith("-") && token !== "-") {
-      const name = flagName(token.includes("=") ? token.slice(0, token.indexOf("=")) : token);
-      const def = name ? FLAG_DEFS[name] : undefined;
-      if (def?.type === "string" && !token.includes("=")) i += 1;
+      i = flagArgumentEnd(argv, i);
       continue;
     }
     leading.push({ token, index: i });
@@ -216,10 +275,14 @@ function resolveCommand(argv: string[], commands: CommandDefinition[]): Resolved
   return best;
 }
 
+function defIsEmptyString(name: string, value: unknown): boolean {
+  return FLAG_DEFS[name].type === "string" && typeof value === "string" && !value.trim();
+}
+
 export function parseCli(argv: string[], commands: CommandDefinition[]): ParsedCli {
   let help = false;
   let version = false;
-  const helpRequested = argv.includes("--help") || argv.includes("-h");
+  let helpGroup: string | undefined;
   const command = resolveCommand(argv, commands);
 
   if (command) {
@@ -243,6 +306,10 @@ export function parseCli(argv: string[], commands: CommandDefinition[]): ParsedC
       if (token.startsWith("-") && token !== "-") {
         const parsed = parseFlagToken(token);
         if (parsed.unknown || !parsed.name) {
+          if (command.forwardArgs) {
+            result.positionals.push(token);
+            continue;
+          }
           throw usageError("USAGE_UNKNOWN_FLAG", `Unknown flag: ${token}`, {
             hint: "Run `sites --help` to see the supported flags.",
           });
@@ -255,21 +322,33 @@ export function parseCli(argv: string[], commands: CommandDefinition[]): ParsedC
           );
         }
         let value = parsed.value;
+        const end = flagArgumentEnd(argv, i);
+        if (FLAG_DEFS[parsed.name].type === "boolean" && end > i) value = argv[end] === "true";
         if (parsed.needsValue) {
-          if (i + 1 >= argv.length) {
+          if (end === i)
             throw usageError("USAGE_MISSING_VALUE", `Flag --${parsed.name} requires a value.`);
-          }
-          i += 1;
-          value = argv[i];
+          value = argv[end];
         }
-        if (parsed.name === "help") help = true;
-        if (parsed.name === "version") version = true;
+        i = end;
+        if (defIsEmptyString(parsed.name, value))
+          throw usageError(
+            "USAGE_MISSING_VALUE",
+            `Flag --${parsed.name} requires a non-empty value.`,
+          );
+        if (parsed.name === "help") help = Boolean(value);
+        if (parsed.name === "version") version = Boolean(value);
         const def = FLAG_DEFS[parsed.name];
         if (def.multiple) {
           const previous = result.options[parsed.name];
           const list = Array.isArray(previous) ? previous : [];
           result.options[parsed.name] = [...list, value];
         } else {
+          if (def.type === "string" && result.options[parsed.name] !== undefined) {
+            throw usageError(
+              "USAGE_DUPLICATE_FLAG",
+              `Flag --${parsed.name} may only be supplied once.`,
+            );
+          }
           result.options[parsed.name] = value;
         }
         continue;
@@ -277,6 +356,9 @@ export function parseCli(argv: string[], commands: CommandDefinition[]): ParsedC
       result.positionals.push(token);
     }
 
+    if (result.options.json && result.options.human) {
+      throw usageError("USAGE_CONFLICTING_FLAGS", "Choose either --json or --human, not both.");
+    }
     result.help = help;
     result.version = version;
     if (version || help) return result;
@@ -299,30 +381,38 @@ export function parseCli(argv: string[], commands: CommandDefinition[]): ParsedC
     return result;
   }
 
-  // No command matched. Allow --help / --version on their own.
+  // With no command, cf displays root help. Still validate all global options.
+  const options: Record<string, unknown> = {};
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
-    if (token === "--help" || token === "-h") help = true;
-    else if (token === "--version" || token === "-v") version = true;
-    else if (token === "--json" || token === "--human" || token === "-q" || token === "--quiet")
-      continue;
-    else if (token === "--no-color" || token === "-y" || token === "--yes") continue;
-    else if (token === "--profile") {
-      i += 1;
-      continue;
-    } else if (token.startsWith("-")) {
+    if (token.startsWith("-")) {
       const parsed = parseFlagToken(token);
-      if (parsed.unknown) throw usageError("USAGE_UNKNOWN_FLAG", `Unknown flag: ${token}`);
-      throw usageError("USAGE_MISSING_COMMAND", "No command was given.", {
-        hint: "Run `sites --help` to see the available commands.",
-      });
-    } else if (GROUPS[token]) {
-      if (helpRequested) {
-        return { help: true, version: false, options: {}, positionals: [], helpGroup: token };
+      if (parsed.unknown || !parsed.name || !GLOBAL_FLAGS.includes(parsed.name))
+        throw usageError("USAGE_UNKNOWN_FLAG", `Unknown flag: ${token}`);
+      let value = parsed.value;
+      const end = flagArgumentEnd(argv, i);
+      if (FLAG_DEFS[parsed.name].type === "boolean" && end > i) value = argv[end] === "true";
+      if (parsed.needsValue) {
+        if (end === i)
+          throw usageError("USAGE_MISSING_VALUE", `Flag --${parsed.name} requires a value.`);
+        value = argv[end];
       }
-      throw usageError("USAGE_MISSING_SUBCOMMAND", `Missing subcommand for \`sites ${token}\`.`, {
-        hint: `Use one of: ${GROUPS[token].join(", ")}.`,
-      });
+      i = end;
+      if (defIsEmptyString(parsed.name, value))
+        throw usageError(
+          "USAGE_MISSING_VALUE",
+          `Flag --${parsed.name} requires a non-empty value.`,
+        );
+      if (FLAG_DEFS[parsed.name].type === "string" && options[parsed.name] !== undefined)
+        throw usageError(
+          "USAGE_DUPLICATE_FLAG",
+          `Flag --${parsed.name} may only be supplied once.`,
+        );
+      options[parsed.name] = value;
+      if (parsed.name === "help") help = Boolean(value);
+      if (parsed.name === "version") version = Boolean(value);
+    } else if (GROUPS[token] && !helpGroup) {
+      helpGroup = token;
     } else {
       const suggestion = closestCommand(token, commands);
       throw usageError("USAGE_UNKNOWN_COMMAND", `Unknown command: ${token}`, {
@@ -332,10 +422,19 @@ export function parseCli(argv: string[], commands: CommandDefinition[]): ParsedC
       });
     }
   }
-  if (help || version) return { help, version, options: {}, positionals: [] };
-  throw usageError("USAGE_MISSING_COMMAND", "No command was given.", {
-    hint: "Run `sites --help` to see the available commands.",
-  });
+  if (options.json && options.human)
+    throw usageError("USAGE_CONFLICTING_FLAGS", "Choose either --json or --human, not both.");
+  if (helpGroup && !help && !version)
+    throw usageError("USAGE_MISSING_SUBCOMMAND", `Missing subcommand for \`sites ${helpGroup}\`.`, {
+      hint: `Use one of: ${GROUPS[helpGroup].join(", ")}.`,
+    });
+  return {
+    help: help || !version,
+    version,
+    options,
+    positionals: [],
+    ...(helpGroup ? { helpGroup } : {}),
+  };
 }
 
 const AGENT_DISCOVERY_HELP = [
@@ -394,7 +493,7 @@ function quoteFlag(name: string, def: FlagDefinition | undefined): string {
 export function commandHelp(command: CommandDefinition, env?: Env): string {
   const lines = [`Usage: ${command.usage ?? `sites ${command.path.join(" ")}`}`];
   if (command.summary) lines.push("", command.summary);
-  const flags = command.flags ?? [];
+  const flags = [...new Set([...(command.flags ?? []), "dry-run"])];
   if (flags.length) {
     lines.push("", "Options:");
     const rows = flags.map((flag) => {
@@ -408,14 +507,14 @@ export function commandHelp(command: CommandDefinition, env?: Env): string {
   }
   lines.push(
     "",
-    "Global options: --json, --human, -q/--quiet, --profile, --no-color, -y/--yes, -h/--help, -v/--version",
+    "Global options: --json, --human, -q/--quiet, --profile, --no-color, -y/--yes, --dry-run, -h/--help, -v/--version",
   );
   return decorateHelp(lines.join("\n") + "\n", env);
 }
 
 export function groupHelp(group: string, commands: CommandDefinition[], env?: Env): string {
   const rows = commands
-    .filter((command) => command.path[0] === group)
+    .filter((command) => command.path[0] === group && !command.hidden)
     .map((command) => [command.path.slice(1).join(" "), command.summary ?? ""]);
   const width = Math.max(0, ...rows.map(([name]) => name.length)) + 2;
   const lines = [
@@ -430,10 +529,9 @@ export function groupHelp(group: string, commands: CommandDefinition[], env?: En
 }
 
 export function generalHelp(commands: CommandDefinition[], env?: Env): string {
-  const rows: Array<[string, string]> = commands.map((command) => [
-    command.path.join(" "),
-    command.summary ?? "",
-  ]);
+  const rows: Array<[string, string]> = commands
+    .filter((command) => !command.hidden)
+    .map((command) => [command.path.join(" "), command.summary ?? ""]);
   const width = Math.max(0, ...rows.map(([name]) => name.length)) + 2;
   const lines = [
     "sites — deploy ChatGPT Sites projects from the command line",
@@ -444,9 +542,10 @@ export function generalHelp(commands: CommandDefinition[], env?: Env): string {
     ...rows.map(([name, summary]) => `  ${name.padEnd(width)}${summary}`),
     "",
     "Global options:",
-    "  --json             JSON output (default)",
+    "  --json             Sites JSON envelope (default: bare JSON)",
     "  --human            Human-readable output",
-    "  -q, --quiet        Suppress progress and non-essential output",
+    "  -q, --quiet        Suppress result and progress output",
+    "  --dry-run          Preview without running (native deploy previews build locally)",
     "  --profile <name>   Credential profile (Codex credentials are shared)",
     "  --no-color         Disable colors",
     "  -y, --yes          Assume yes for confirmation prompts",

@@ -377,6 +377,87 @@ test("deploy uploads, saves, polls, and records state", async () => {
   }
 });
 
+for (const accessMode of ["custom", "public"])
+  test(`versions create uploads without deployment or audience/env changes (${accessMode})`, async () => {
+    const { root, remote } = makeProject();
+    fs.mkdirSync(path.join(root, ".sites"));
+    fs.writeFileSync(
+      path.join(root, ".sites/state.json"),
+      JSON.stringify({
+        last_deployment_id: "live_dep",
+        last_version_id: "live_version",
+        last_artifact_hash: "live_hash",
+        tags: { live: "live_version" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(root, ".sites/conversion-env.json"),
+      JSON.stringify({ vars: { MUST_NOT_APPLY: "must-not-leak" } }),
+    );
+    const upload = await createUploadServer();
+    const mock = await createMockMcp((call) => {
+      if (call.name === "sites.get_site")
+        return structured({ id: "appgprj_1", access_mode: accessMode });
+      if (call.name === "sites.create_source_repository_write_credential")
+        return structured({ remote_url: remote, branch: "main", token: "secret-token" });
+      if (call.name === "sites.save_site_version")
+        return structured({ id: "draft_version", version_number: 2 });
+      assert.equal(call.method, "initialize", `Unexpected remote operation: ${call.name}`);
+      return undefined;
+    });
+    try {
+      const result = await runCli(["versions", "create", "--tag", "draft"], {
+        cwd: root,
+        env: {
+          SITES_MCP_URL: mock.url,
+          SITES_API_BASE: upload.base,
+          SITES_ALLOW_INSECURE_GIT: "1",
+        },
+      });
+      assert.equal(result.code, 0, result.stderr);
+      const body = JSON.parse(result.stdout).data;
+      assert.equal(body.status, "uploaded");
+      assert.equal(body.deployment_id, null);
+      assert.equal(body.access_mode, accessMode);
+      assert.deepEqual(
+        mock.calls.filter((call) => call.name).map((call) => call.name),
+        [
+          "sites.get_site",
+          "sites.create_source_repository_write_credential",
+          "sites.save_site_version",
+        ],
+      );
+      assert.deepEqual(upload.calls, [
+        "POST /backend-api/files",
+        "PUT /blob/file_1",
+        "POST /backend-api/files/file_1/uploaded",
+      ]);
+      const state = JSON.parse(fs.readFileSync(path.join(root, ".sites/state.json"), "utf8"));
+      assert.equal(state.last_deployment_id, "live_dep");
+      assert.equal(state.last_version_id, "live_version");
+      assert.equal(state.last_artifact_hash, "live_hash");
+      assert.equal(state.last_uploaded_version_id, "draft_version");
+      assert.equal(state.tags.live, "live_version");
+      assert.equal(state.tags.draft, "draft_version");
+      assert.doesNotMatch(result.stdout + result.stderr, /must-not-leak|secret-token/);
+    } finally {
+      await mock.close();
+      await upload.close();
+    }
+  });
+
+test("versions create native dry-run builds offline without touching uploaded/deployed state", async () => {
+  const { root } = makeProject();
+  const result = await runCli(["versions", "create", "--dry-run"], {
+    cwd: root,
+    env: { SITES_ACCESS_TOKEN: undefined, SITES_AUTH_PATH: path.join(root, "missing-auth.json") },
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).data.dry_run, true);
+  assert.ok(fs.existsSync(path.join(root, "dist/index.html")));
+  assert.equal(fs.existsSync(path.join(root, ".sites/state.json")), false);
+});
+
 test("deploy without source sync uses the current commit", async () => {
   const { root } = makeProject();
   execFileSync("git", ["init", "--initial-branch", "main"], { cwd: root, stdio: "ignore" });

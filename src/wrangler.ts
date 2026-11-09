@@ -216,9 +216,20 @@ export function parseToml(text: string): WranglerConfig {
   return root as WranglerConfig;
 }
 
-export function findWranglerConfig(root: string): FoundWrangler | null {
-  for (const [name, format] of CANDIDATES) {
-    const absolute = path.join(root, name);
+export function findWranglerConfig(root: string, configPath?: string): FoundWrangler | null {
+  const extension = configPath ? path.extname(configPath).toLowerCase() : null;
+  if (extension && ![".toml", ".json", ".jsonc"].includes(extension)) {
+    throw new CliError(
+      "CONVERT_INVALID_CONFIG",
+      "Wrangler configuration must be TOML, JSON, or JSONC.",
+      { exitCode: EXIT.PREFLIGHT },
+    );
+  }
+  const candidates: typeof CANDIDATES = configPath
+    ? [[configPath, extension === ".toml" ? "toml" : "jsonc"]]
+    : CANDIDATES;
+  for (const [name, format] of candidates) {
+    const absolute = path.resolve(root, name);
     if (!fs.existsSync(absolute)) continue;
     let text: string;
     try {

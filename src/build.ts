@@ -1,11 +1,11 @@
 // Build orchestration for `sites deploy` (plan §5.1 step 3), using cf-style
 // project detection for the build command and output directory.
 
-import { spawn } from "node:child_process";
+import { spawnCommand } from "./subprocess.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CliError, EXIT } from "./errors.ts";
+import { CliError, CommandExit, EXIT } from "./errors.ts";
 import { readManifest } from "./manifest.ts";
 import { bundleWorker, resolveWorkerEntry } from "./bundler.ts";
 import {
@@ -15,7 +15,8 @@ import {
   packageCommand,
   type ProjectDetection,
 } from "./project-detect.ts";
-import type { Env } from "./types.ts";
+import type { Env, OutputStream } from "./types.ts";
+import { registerSignalHandler } from "./util.ts";
 
 export interface BuildResult {
   mode: "script" | "framework" | "static-copy" | "worker-bundle" | "prebuilt";
@@ -28,39 +29,81 @@ function isInside(parent: string, candidate: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-async function runProcess(options: {
+export async function runBuildProcess(options: {
   file: string;
   args: string[];
   cwd: string;
   env: Env;
   label: string;
+  output: OutputStream;
+  quiet?: boolean;
+  /** Internal timing overrides for subprocess regression tests. */
+  timeoutMs?: number;
+  killGraceMs?: number;
 }): Promise<void> {
-  const { file, args, cwd, env, label } = options;
-  const child = spawn(file, args, {
+  const { file, args, cwd, env, label, output, quiet } = options;
+  const timeoutMs = options.timeoutMs ?? 10 * 60 * 1000;
+  const killGraceMs = options.killGraceMs ?? 5000;
+  // Like cf, both build streams go to stderr, never the JSON result channel.
+  // Real stderr inheritance preserves TTY detection; injected streams are relayed.
+  const inherit = !quiet && output === process.stderr;
+  const child = spawnCommand(file, args, {
     cwd,
     env: { ...process.env, ...env },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["inherit", inherit ? process.stderr : "pipe", inherit ? "inherit" : "pipe"],
   });
-  let output = "";
-  child.stdout.on("data", (chunk: Buffer) => {
-    output += chunk.toString();
+  let tail = "";
+  const relay = (chunk: string): void => {
+    tail = (tail + chunk).slice(-64 * 1024);
+    if (!quiet) output.write(chunk);
+  };
+  child.stdout?.setEncoding("utf8").on("data", relay);
+  child.stderr?.setEncoding("utf8").on("data", relay);
+  let timedOut = false;
+  let forwardedSignal: NodeJS.Signals | undefined;
+  let fallback: ReturnType<typeof setTimeout> | undefined;
+  const terminate = (signal: NodeJS.Signals): void => {
+    child.kill(signal);
+    if (signal === "SIGTERM" && !fallback)
+      fallback = setTimeout(() => child.kill("SIGKILL"), killGraceMs);
+  };
+  const unregister = registerSignalHandler((signal) => {
+    forwardedSignal ??= signal;
+    if (process.platform !== "win32" || signal !== "SIGINT") terminate(signal);
   });
-  child.stderr.on("data", (chunk: Buffer) => {
-    output += chunk.toString();
-  });
-  const timer = setTimeout(() => child.kill("SIGTERM"), 10 * 60 * 1000);
-  const code = await new Promise<number>((resolve, reject) => {
-    child.on("error", reject);
-    child.on("close", (value) => resolve(value ?? 1));
-  }).finally(() => clearTimeout(timer));
-  if (code !== 0) {
-    const tail = output.trim().split("\n").slice(-30).join("\n");
-    throw new CliError("BUILD_FAILED", `${label} exited with code ${code}.`, {
-      exitCode: EXIT.GENERAL,
-      hint: "Fix the build error and retry.",
-      details: { command: label, output: tail },
+  // Retain the existing bounded-build safeguard, but make timeout explicit and
+  // escalate if a build ignores SIGTERM instead of waiting forever.
+  const timer = setTimeout(() => {
+    timedOut = true;
+    terminate("SIGTERM");
+  }, timeoutMs);
+  let result: { code: number | null; signal: NodeJS.Signals | null };
+  try {
+    result = await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code, signal) => resolve({ code, signal }));
     });
+  } finally {
+    clearTimeout(timer);
+    clearTimeout(fallback);
+    unregister();
   }
+  const details = { command: label, output: tail.trim().split("\n").slice(-30).join("\n") };
+  if (timedOut)
+    throw new CliError("BUILD_TIMEOUT", `${label} exceeded the ${timeoutMs}ms build deadline.`, {
+      hint: "Optimize the build, or build separately and deploy with --prebuilt.",
+      details: { ...details, timeout_ms: timeoutMs },
+    });
+  const signal = result.signal ?? forwardedSignal;
+  const code = result.code ?? (signal ? 128 + (os.constants.signals[signal] ?? 1) : 1);
+  // Even a graceful exit 0 after interruption must not continue into upload.
+  if (signal) throw new CommandExit(code);
+  if (code !== 0)
+    throw new CliError("BUILD_FAILED", `${label} exited with code ${code}.`, {
+      exitCode: code,
+      hint: "Fix the build error and retry.",
+      details,
+    });
 }
 
 function copyStaticAssets(root: string, source: string, dist: string): void {
@@ -91,8 +134,11 @@ export async function buildSite(options: {
   noBuildScript: boolean;
   prebuilt?: boolean;
   log: (text: string) => void;
+  output?: OutputStream;
+  quiet?: boolean;
 }): Promise<BuildResult> {
   const { root, log } = options;
+  const outputStream = options.output ?? { write: (text: string) => log(text.replace(/\n$/, "")) };
   const env = options.env ?? {};
   const detection = detectProject(root);
   for (const warning of detection.warnings) log(`warning: ${warning}`);
@@ -109,7 +155,9 @@ export async function buildSite(options: {
       command = `${detection.packageManager} run ${detection.buildScript}`;
       log(`detected ${detection.framework?.name ?? "package"} project (${command})`);
       log(`running ${command}`);
-      await runProcess({
+      await runBuildProcess({
+        output: outputStream,
+        quiet: options.quiet,
         file: detection.packageManager,
         args: ["run", detection.buildScript],
         cwd: root,
@@ -122,7 +170,15 @@ export async function buildSite(options: {
       command = argv.join(" ");
       log(`detected ${detection.framework?.name ?? "project"} (${command})`);
       log(`running ${command}`);
-      await runProcess({ file: argv[0], args: argv.slice(1), cwd: root, env, label: command });
+      await runBuildProcess({
+        file: argv[0],
+        args: argv.slice(1),
+        cwd: root,
+        env,
+        label: command,
+        output: outputStream,
+        quiet: options.quiet,
+      });
       mode = "framework";
     }
   }

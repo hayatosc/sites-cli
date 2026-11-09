@@ -21,7 +21,8 @@ import type {
   SourceCredential,
 } from "./api-types.ts";
 import type { CommandContext } from "./types.ts";
-import { stringOption } from "./util.ts";
+import { stringListOption, stringOption } from "./util.ts";
+import { integerOption } from "./args.ts";
 import { readEnvFile, readSecretsFile } from "./env-file.ts";
 import type { ProjectDetection } from "./project-detect.ts";
 
@@ -129,19 +130,13 @@ function credentialOf(
   return value;
 }
 
-export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
+export async function runDeploy(
+  ctx: CommandContext,
+  options: { uploadOnly?: boolean } = {},
+): Promise<DeployData> {
   const dryRun = Boolean(ctx.options["dry-run"]);
   const allowDirty = Boolean(ctx.options["allow-dirty"]);
-  const timeout = Number(ctx.options.timeout ?? 300);
-  if (!Number.isFinite(timeout) || timeout <= 0) {
-    throw new CliError(
-      "USAGE_INVALID_VALUE",
-      `Invalid --timeout value: ${String(ctx.options.timeout)}`,
-      {
-        exitCode: EXIT.USAGE,
-      },
-    );
-  }
+  const timeout = integerOption(ctx.options, "timeout", { min: 1, max: 86_400, fallback: 300 });
   const requestedAccess = accessModeFromFlags(ctx);
   const message = stringOption(ctx.options, "message") ?? "Update Site source";
 
@@ -159,7 +154,7 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   if (!fs.existsSync(path.join(ctx.root, MANIFEST_DIR, MANIFEST_NAME))) {
     conversion = await convertWranglerProject({
       root: ctx.root,
-      allowUnsupported: stringOption(ctx.options, "allow-unsupported")?.split(",") ?? [],
+      allowUnsupported: stringListOption(ctx.options, "allow-unsupported"),
       log: ctx.log,
     });
   }
@@ -179,12 +174,14 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
     prebuilt: Boolean(ctx.options.prebuilt),
     noBuildScript: Boolean(ctx.options["no-build-script"]),
     log: ctx.log,
+    output: ctx.stderr,
+    quiet: ctx.quiet,
   });
   const dist = inspectDist(ctx.root, manifest);
   ctx.success(build.mode === "prebuilt" ? "Build output ready" : "Build complete");
 
   const mergedValues = new Map<string, { key: string; value: string; is_secret: boolean }>();
-  for (const entry of conversionVariables(ctx.root)) {
+  for (const entry of options.uploadOnly ? [] : conversionVariables(ctx.root)) {
     mergedValues.set(entry.key, { ...entry, is_secret: false });
   }
   const envFile = stringOption(ctx.options, "env-file");
@@ -228,16 +225,15 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   }
 
   const state = readState(ctx.root);
-  const advanceSha = Boolean(
-    state.last_artifact_hash && state.last_artifact_hash !== dist.treeHash,
-  );
+  const previousHash = state.last_uploaded_artifact_hash ?? state.last_artifact_hash;
+  const advanceSha = Boolean(previousHash && previousHash !== dist.treeHash);
 
   const client = ctx.mcp();
   await client.initialize();
   const site = await client.callTool<SiteRecord>("sites.get_site", { project_id: projectId });
   const currentAccess = site.access_mode ?? "custom";
   const targetAccess = requestedAccess ?? currentAccess;
-  if (targetAccess === "public" && currentAccess !== "public") {
+  if (!options.uploadOnly && targetAccess === "public" && currentAccess !== "public") {
     await confirmPublic(ctx);
   }
 
@@ -245,7 +241,11 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   let commitSha: string | null = null;
   let pushed = false;
   if (ctx.options["no-source-sync"]) {
-    commitSha = (await currentHead(ctx.root)) ?? state.last_commit_sha ?? null;
+    commitSha =
+      (await currentHead(ctx.root)) ??
+      state.last_uploaded_commit_sha ??
+      state.last_commit_sha ??
+      null;
     if (!commitSha) {
       throw new CliError(
         "PREFLIGHT_NO_COMMIT",
@@ -297,14 +297,19 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   ctx.log(`${archive.fileCount} files, ${archive.sizeBytes} bytes`);
 
   ctx.log("Upload");
-  const uploaded = await uploadArchive({
-    archiveFile: archive.archiveFile,
-    projectId,
-    token: ctx.getIdentity().token,
-    env: ctx.env,
-    log: ctx.log,
-  });
-  fs.rmSync(path.dirname(archive.archiveFile), { recursive: true, force: true });
+  const uploaded = await (async () => {
+    try {
+      return await uploadArchive({
+        archiveFile: archive.archiveFile,
+        projectId,
+        token: ctx.getIdentity().token,
+        env: ctx.env,
+        log: ctx.log,
+      });
+    } finally {
+      fs.rmSync(path.dirname(archive.archiveFile), { recursive: true, force: true });
+    }
+  })();
 
   ctx.log("Save version");
   const version = await client.callTool<SiteVersionRecord>("sites.save_site_version", {
@@ -314,6 +319,34 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   });
   if (!version.id) {
     throw new CliError("INTERNAL_ERROR", "save_site_version returned no version id.");
+  }
+
+  const tag = stringOption(ctx.options, "tag");
+  const uploadedState: LocalState = {
+    ...state,
+    last_uploaded_version_id: version.id,
+    last_uploaded_commit_sha: commitSha ?? undefined,
+    last_uploaded_artifact_hash: dist.treeHash,
+    ...(tag ? { tags: { ...state.tags, [tag]: version.id } } : {}),
+    updated_at: new Date().toISOString(),
+  };
+  writeState(ctx.root, uploadedState);
+  if (options.uploadOnly) {
+    ctx.success("Version uploaded (not deployed)");
+    return {
+      project_id: projectId,
+      version_id: version.id,
+      version_number: version.version_number ?? null,
+      deployment_id: null,
+      status: "uploaded",
+      url: null,
+      commit_sha: commitSha,
+      access_mode: currentAccess,
+      kind: dist.kind,
+      commit_pushed: pushed,
+      archive: { size_bytes: archive.archiveSize, file_count: archive.fileCount },
+      detection: detectionReport(build.detection, dist.kind),
+    };
   }
 
   if (values.length) {
@@ -358,15 +391,13 @@ export async function runDeploy(ctx: CommandContext): Promise<DeployData> {
   }
 
   const nextState: LocalState = {
-    ...state,
+    ...uploadedState,
     last_deployment_id: deploymentId,
     last_version_id: version.id,
     last_commit_sha: commitSha ?? undefined,
     last_artifact_hash: dist.treeHash,
     updated_at: new Date().toISOString(),
   };
-  const tag = stringOption(ctx.options, "tag");
-  if (tag) nextState.tags = { ...state.tags, [tag]: version.id };
   writeState(ctx.root, nextState);
   ctx.success("Deploy complete");
 

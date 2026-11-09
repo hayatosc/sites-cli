@@ -1,10 +1,9 @@
 // `sites cli search`, `sites docs search`, and `sites schema` (plan §4).
 //
-// Search follows the cf CLI: commands are ranked with MiniSearch over the
-// command path, summary, description, keywords, and context; the result is
-// limited to five compact {command, summary} entries.
+// Dependency-free weighted substring search with exact command priority and
+// bounded typo correction; return five compact {command, summary} entries.
 
-import MiniSearch from "minisearch";
+import { editDistance } from "../args.ts";
 import { bundledDocs } from "virtual:sites-docs";
 import { CliError, usageError } from "../errors.ts";
 import type { CommandDefinition, CommandResult, DefineCommand } from "../types.ts";
@@ -35,6 +34,42 @@ interface ToolSchema {
   description?: string;
   inputSchema?: unknown;
 }
+
+const COMMAND_TOOLS: Record<string, string[]> = {
+  list: ["list_sites"],
+  info: ["get_site"],
+  create: ["check_slug_availability", "create_site"],
+  deploy: [
+    "save_site_version",
+    "deploy_site_version",
+    "deploy_private_site_version",
+    "get_deployment_status",
+  ],
+  status: ["get_deployment_status"],
+  logs: ["get_site_worker_logs"],
+  open: ["get_site"],
+  delete: ["delete_site"],
+  "versions create": ["save_site_version"],
+  "versions list": ["list_site_versions"],
+  "versions show": ["get_site_version"],
+  "versions get": ["get_site_version"],
+  "versions rollback": ["deploy_site_version", "deploy_private_site_version"],
+  "env list": ["get_environment"],
+  "env get": ["get_environment"],
+  "env pull": ["get_environment"],
+  "env set": ["update_environment_variables"],
+  "env unset": ["update_environment_variables"],
+  "env push": ["update_environment_variables"],
+  "access show": ["get_site"],
+  "access set": ["update_site_access"],
+  "domains add": ["add_custom_domain"],
+  "domains list": ["list_custom_domains"],
+  "domains get": ["list_custom_domains"],
+  "domains refresh": ["refresh_custom_domain_status"],
+  "domains remove": ["remove_custom_domain"],
+  "analytics summary": ["get_site_analytics_overview"],
+  "analytics events": ["list_site_analytics_events"],
+};
 
 const DOCS_BASE_URL = "https://github.com/hayatosc/sites-cli/blob/main/docs/";
 
@@ -111,29 +146,50 @@ function searchDocument(item: CommandDefinition): CliSearchDocument {
 }
 
 export function searchCommands(commands: CommandDefinition[], query: string): CliSearchHit[] {
-  const index = new MiniSearch<CliSearchDocument>({
-    fields: ["command", "summary", "description", "keywords", "context"],
-    storeFields: ["command", "summary"],
-    idField: "command",
-  });
-  index.addAll(commands.map(searchDocument));
-  return index
-    .search(query, {
-      prefix: true,
-      fuzzy: 0.2,
-      boost: {
-        command: 8,
-        summary: 5,
-        description: 2,
-        keywords: 5,
-        context: 0.5,
-      },
+  const words = terms(query);
+  const normalized = query.trim().toLowerCase();
+  const fields = [
+    ["command", 8],
+    ["summary", 5],
+    ["description", 2],
+    ["keywords", 5],
+    ["context", 0.5],
+  ] as const;
+  return commands
+    .filter((command) => !command.hidden)
+    .map(searchDocument)
+    .map((document) => {
+      const exact = document.command === normalized || document.command === `sites ${normalized}`;
+      let score = 0;
+      for (const [field, weight] of fields) {
+        const text = document[field].toLowerCase();
+        for (const word of words) {
+          let count = text.split(word).length - 1;
+          if (!count && word.length >= 5) {
+            const limit = Math.floor(word.length * 0.2);
+            if (
+              terms(text).some(
+                (token) =>
+                  Math.abs(token.length - word.length) <= limit &&
+                  editDistance(word, token) <= limit,
+              )
+            )
+              count = 0.5;
+          }
+          score += count * weight;
+        }
+      }
+      return { document, exact, score };
     })
+    .filter((entry) => entry.score > 0)
+    .sort(
+      (left, right) =>
+        Number(right.exact) - Number(left.exact) ||
+        right.score - left.score ||
+        left.document.command.localeCompare(right.document.command),
+    )
     .slice(0, 5)
-    .map(({ command, summary }) => ({
-      command: String(command),
-      summary: String(summary),
-    }));
+    .map(({ document: { command, summary } }) => ({ command, summary }));
 }
 
 function suggestTool(wanted: string, tools: ToolSchema[]): string | null {
@@ -202,10 +258,21 @@ export function registerDocsCommands(define: DefineCommand, commands: CommandDef
   define({
     path: ["schema"],
     flags: ["list"],
-    positionals: { min: 0, max: 1, names: ["tool"] },
+    positionals: { min: 0, max: Number.POSITIVE_INFINITY, names: ["tool|command.."] },
     summary: "Show MCP tool input schemas",
-    usage: "sites schema <tool>  or  sites schema --list",
+    usage: "sites schema <tool|command..>  or  sites schema --list",
     run: async (ctx): Promise<CommandResult<ToolSchema | ToolSchema[]>> => {
+      const wanted = ctx.positionals.join(" ").trim();
+      if (!wanted && !ctx.options.list) {
+        throw new CliError(
+          "USAGE_MISSING_ARGUMENT",
+          "Schema requires a tool name or command path.",
+          {
+            exitCode: 1,
+            hint: "Usage: sites schema <tool|command..>  or  sites schema --list",
+          },
+        );
+      }
       const tools = await ctx.mcp().listTools();
       if (ctx.options.list) {
         const summary = tools.map((tool) => ({
@@ -219,12 +286,19 @@ export function registerDocsCommands(define: DefineCommand, commands: CommandDef
           },
         };
       }
-      const wanted = ctx.positionals[0];
-      if (!wanted) {
-        throw new CliError("USAGE_MISSING_ARGUMENT", "Schema requires a tool name.", {
-          exitCode: 1,
-          hint: "Usage: sites schema <tool>  or  sites schema --list",
-        });
+      const mappedNames = COMMAND_TOOLS[wanted];
+      if (mappedNames) {
+        const schemas = mappedNames.map((name) =>
+          tools.find((tool) => tool.name === `sites.${name}`),
+        );
+        if (schemas.some((schema) => !schema)) {
+          throw new CliError(
+            "NOT_FOUND_TOOL",
+            `The server does not advertise every tool used by "${wanted}".`,
+          );
+        }
+        const available = schemas.filter((schema): schema is ToolSchema => schema !== undefined);
+        return { data: available.length === 1 ? available[0] : available };
       }
       const tool = tools.find((entry) => entry.name === wanted || entry.name === `sites.${wanted}`);
       if (!tool) {

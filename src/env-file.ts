@@ -39,12 +39,18 @@ function parseValue(
   if (value.startsWith('"')) {
     const end = value.lastIndexOf('"');
     if (end > 0) {
-      const quoted = value.slice(1, end).replace(/\\([nrt"\\])/g, (_match, escaped: string) => {
+      let quoted = value.slice(1, end).replace(/\\([nrt"\\])/g, (_match, escaped: string) => {
         if (escaped === "n") return "\n";
         if (escaped === "r") return "\r";
         if (escaped === "t") return "\t";
         return escaped;
       });
+      try {
+        const decoded: unknown = JSON.parse(value.slice(0, end + 1));
+        if (typeof decoded === "string") quoted = decoded;
+      } catch {
+        // Non-JSON dotenv escapes remain compatible with existing input files.
+      }
       return doExpand ? expand(quoted, lookup) : quoted;
     }
   }
@@ -78,7 +84,7 @@ export function parseDotenv(raw: string, options: DotenvOptions): EnvFileEntry[]
     if (equal <= 0) {
       throw fileError(
         "PREFLIGHT_ENV_FILE",
-        `Invalid environment file line: ${line}`,
+        "Invalid environment file line (contents omitted).",
         "Use KEY=VALUE lines.",
       );
     }
@@ -103,11 +109,8 @@ function parseJson(raw: string, options: DotenvOptions): EnvFileEntry[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (error) {
-    throw fileError(
-      "PREFLIGHT_ENV_FILE",
-      `Invalid JSON environment file: ${(error as Error).message}`,
-    );
+  } catch {
+    throw fileError("PREFLIGHT_ENV_FILE", "Invalid JSON environment file (contents omitted).");
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw fileError("PREFLIGHT_ENV_FILE", "The environment file must contain a JSON object.");

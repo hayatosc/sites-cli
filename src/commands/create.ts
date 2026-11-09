@@ -38,11 +38,11 @@ function requestedAccess(ctx: CommandContext): "custom" | "public" | "workspace_
 export function registerCreateCommands(define: DefineCommand): void {
   define({
     path: ["create"],
-    flags: ["title", "private", "public", "workspace", "description", "dry-run"],
+    nativeDryRun: true,
+    flags: ["title", "private", "public", "workspace", "dry-run"],
     positionals: { min: 1, max: 1, names: ["slug"] },
     summary: "Create a new site",
-    usage:
-      "sites create <slug> [--title <title>] [--private|--public|--workspace] [--description <text>] [--dry-run]",
+    usage: "sites create <slug> [--title <title>] [--private|--public|--workspace] [--dry-run]",
     run: async (ctx): Promise<CommandResult<CreateData>> => {
       const slug = ctx.positionals[0];
       if (!SLUG_PATTERN.test(slug)) {

@@ -6,6 +6,7 @@ import { resolveProjectRef } from "../manifest.ts";
 import { CliError, EXIT, usageError } from "../errors.ts";
 import { integerOption } from "../args.ts";
 import { sleep, stringListOption } from "../util.ts";
+import { confirmDestructive } from "../prompt.ts";
 
 type AccessMode = "custom" | "public" | "workspace_all";
 
@@ -98,6 +99,12 @@ export function registerAccessCommands(define: DefineCommand): void {
       }
       const timeout = integerOption(ctx.options, "timeout", { min: 1, max: 600, fallback: 120 });
       const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
+      if (
+        mode === "public" &&
+        !(await confirmDestructive(ctx, `site ${projectId} publicly`, false, "publishes", "--yes"))
+      ) {
+        throw new CliError("CANCELLED", "Access change cancelled.", { exitCode: EXIT.INTERRUPT });
+      }
       const args: Record<string, unknown> = { project_id: projectId, access_mode: mode };
       if (emails.length) args.allowed_user_emails = emails;
       await ctx.mcp().callTool("sites.update_site_access", args);
@@ -107,7 +114,7 @@ export function registerAccessCommands(define: DefineCommand): void {
         ctx.log(`waiting for access mode to become ${mode}`);
         const deadline = Date.now() + timeout * 1000;
         while (Date.now() < deadline) {
-          await sleep(3000);
+          await sleep(Math.min(3000, Math.max(0, deadline - Date.now())));
           site = await ctx.mcp().callTool<SiteRecord>("sites.get_site", { project_id: projectId });
           if (site.access_mode === mode) break;
         }

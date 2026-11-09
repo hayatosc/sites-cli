@@ -25,6 +25,11 @@ export interface CommandResult<T = unknown> {
 export interface CommandDefinition<T = unknown> {
   path: string[];
   flags?: string[];
+  /** Native previews may build locally; other commands only preview parsed arguments. */
+  nativeDryRun?: boolean;
+  /** Delegate unknown flags verbatim (e.g. a project's dev server). */
+  forwardArgs?: boolean;
+  hidden?: boolean;
   positionals?: { min: number; max: number; names?: string[] };
   summary?: string;
   keywords?: string[];
@@ -50,6 +55,7 @@ export interface ParsedCli {
 }
 
 export interface CommandContext {
+  argv: readonly string[];
   command: CommandDefinition;
   options: Record<string, unknown>;
   positionals: string[];
@@ -64,7 +70,7 @@ export interface CommandContext {
   /** Resolves (and caches) Codex credentials. */
   getIdentity: () => Identity;
   log: (text: string) => void;
-  /** Writes a cf-style success line even when --quiet is set. */
+  /** Writes a cf-style success line only to an interactive, non-quiet stderr. */
   success: (text: string) => void;
   /** Lazily creates the MCP client. */
   mcp: () => McpClient;

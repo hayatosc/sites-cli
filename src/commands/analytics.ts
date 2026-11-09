@@ -18,9 +18,14 @@ function parseWindow(value: string | undefined): number {
     });
   }
   const amount = Number(match[1]);
-  if (match[2] === "m") return amount * 60 * 1000;
-  if (match[2] === "h") return amount * HOUR_MS;
-  return amount * 24 * HOUR_MS;
+  const duration =
+    amount * (match[2] === "m" ? 60 * 1000 : match[2] === "h" ? HOUR_MS : 24 * HOUR_MS);
+  if (!Number.isSafeInteger(duration) || duration <= 0 || duration > Date.now()) {
+    throw usageError("USAGE_INVALID_VALUE", `Invalid --since value: ${value}`, {
+      hint: "Use a positive duration such as 24h or 7d within the Unix time range.",
+    });
+  }
+  return duration;
 }
 
 function align(ms: number, direction: "floor" | "ceil"): number {
@@ -69,8 +74,8 @@ export function registerAnalyticsCommands(define: DefineCommand): void {
           hint: "Use classic or list.",
         });
       }
-      const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const window = windowOf(ctx);
+      const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const args: Record<string, unknown> = {
         project_id: projectId,
         ...window,
@@ -96,8 +101,8 @@ export function registerAnalyticsCommands(define: DefineCommand): void {
     summary: "List analytics events",
     usage: "sites analytics events [--since 24h]",
     run: async (ctx): Promise<CommandResult<EventsData>> => {
-      const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const window = windowOf(ctx);
+      const projectId = await resolveProjectRef(undefined, ctx.mcp(), ctx.root);
       const result = await ctx
         .mcp()
         .callTool<{ events?: Array<Record<string, unknown>> }>("sites.list_site_analytics_events", {

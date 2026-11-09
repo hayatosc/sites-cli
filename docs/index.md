@@ -50,7 +50,9 @@ npx @hayatosc/sites open
 
 ## Output
 
-The default output is JSON, which is suitable for scripts and agents.
+The default output is bare pretty-printed JSON, matching cf. Errors are human-readable on stderr and exit 1; interruption exits 130. Delegated `dev`/build subprocesses preserve their exit status. Search results are bare arrays and schema results are tool objects.
+
+Use `--json` to retain the previous envelope and detailed error codes:
 
 ```json
 {
@@ -63,11 +65,13 @@ The default output is JSON, which is suitable for scripts and agents.
 }
 ```
 
-Use `--human` for human-readable output. Progress, warnings, and diagnostics go to stderr; `--quiet` suppresses progress, and `--quiet=false` restores it. Errors return `ok: false` plus `error.code`, `error.message`, and `error.hint`.
+Use `--human` for human-readable output. Progress, warnings, and diagnostics go to stderr; success labels appear only on a TTY. `--quiet` suppresses results and progress (not errors), and `--quiet=false` restores output. With explicit `--json`, errors return `ok: false` plus `error.code`, `error.message`, and `error.hint`.
 
-`cli search` and `docs search` put their result arrays directly in `data`, and `schema` puts a tool object there, matching the shape of the equivalent `cf` commands.
+Every command supports `--dry-run`: most only preview parsed arguments without auth, network or file effects. Native deploy/version previews may build locally; migrate stages output in a temporary directory; create/env push inspect local inputs. Preview results omit sensitive argument values.
 
 ## Exit codes
+
+Default mode uses 0, 1 and 130, like cf. Explicit `--json` retains these detailed codes:
 
 | Code | Meaning                                      |
 | ---- | -------------------------------------------- |
@@ -89,10 +93,10 @@ npx @hayatosc/sites docs search "custom domain"
 npx @hayatosc/sites docs search "dry-run"
 ```
 
-Use `sites cli search` to find commands by task. It returns up to five `{command, summary}` results, ranked with the same MiniSearch configuration as `cf cli search`. Keep queries anonymous: describe the action and resource type, not names, domains, IDs, or tokens.
+Use `sites cli search` to find commands by task. It returns up to five `{command, summary}` results, ranked by dependency-free weighted substring matching, exact-command priority, and limited typo correction. Rankings are not identical to `cf cli search`. Keep queries anonymous: describe the action and resource type, not names, domains, IDs, or tokens.
 
 ```sh
 npx @hayatosc/sites cli search "environment variables"
 ```
 
-Both searches are advertised in `--help` when the CLI detects an agent harness. After choosing a command, run `sites <command> --help` for its flags. `sites schema --list` lists MCP tools, and `sites schema <tool>` prints one tool's input schema.
+Both searches are advertised in `--help` when the CLI detects an agent harness. After choosing a command, run `sites <command> --help` for its flags. `sites schema --list` lists MCP tools, and `sites schema <tool>` prints one tool's input schema; `sites schema versions create` maps a CLI path to its underlying MCP schemas.
