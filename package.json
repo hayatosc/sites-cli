@@ -1,6 +1,6 @@
 {
   "name": "@hayatosc/sites",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deploy ChatGPT Sites projects from the command line",
   "bin": {
     "sites": "dist/cli.mjs"

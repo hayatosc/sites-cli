@@ -321,6 +321,12 @@ test("deploy uploads, saves, polls, and records state", async () => {
     assert.equal(result.code, 0, result.stderr);
     assert.match(result.stdout, /Deployed appgprj_1/);
     const save = mock.calls.find((call) => call.name === "sites.save_site_version") as MockCall;
+    assert.deepEqual(save.args?.archive, {
+      download_url: "https://files.test/site.tar.gz",
+      file_id: "file_1",
+      mime_type: "application/gzip",
+      file_name: "site.tar.gz",
+    });
     assert.equal(typeof save.args?.commit_sha, "string");
     const commitSha = save.args?.commit_sha;
     assert.ok(typeof commitSha === "string");
@@ -402,6 +408,13 @@ for (const accessMode of ["custom", "public"])
           "sites.save_site_version",
         ],
       );
+      const save = mock.calls.find((call) => call.name === "sites.save_site_version");
+      assert.deepEqual(save?.args?.archive, {
+        download_url: "https://files.test/site.tar.gz",
+        file_id: "file_1",
+        mime_type: "application/gzip",
+        file_name: "site.tar.gz",
+      });
       assert.deepEqual(upload.calls, [
         "POST /backend-api/files",
         "PUT /blob/file_1",

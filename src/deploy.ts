@@ -315,7 +315,12 @@ export async function runDeploy(
   const version = await client.callTool<SiteVersionRecord>("sites.save_site_version", {
     project_id: projectId,
     commit_sha: commitSha,
-    archive: uploaded,
+    archive: {
+      download_url: uploaded.download_url,
+      file_id: uploaded.file_id,
+      mime_type: uploaded.mime_type,
+      file_name: uploaded.file_name,
+    },
   });
   if (!version.id) {
     throw new CliError("INTERNAL_ERROR", "save_site_version returned no version id.");

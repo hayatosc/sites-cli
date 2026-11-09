@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-11-09
+
+### Fixed
+
+- Send only connector-schema fields in the `save_site_version` archive payload, excluding internal `file_size_bytes` metadata so deploys and version uploads pass schema validation.
+
 ## [0.1.0] - 2026-11-09
 
 First published package shape for `@hayatosc/sites` (not yet on the npm registry at the time this file was added).
