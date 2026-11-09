@@ -168,4 +168,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-License is not declared yet. See open questions before redistributing.
+[MIT](LICENSE) © 2026 hayatosc

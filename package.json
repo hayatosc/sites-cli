@@ -8,7 +8,8 @@
   "files": [
     "dist",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "type": "module",
   "scripts": {
@@ -46,5 +47,6 @@
     "openai",
     "cloudflare",
     "workers"
-  ]
+  ],
+  "license": "MIT"
 }
