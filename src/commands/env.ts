@@ -2,13 +2,14 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
+import type { CommandResult, DefineCommand } from "../types.ts";
 import type { EnvironmentEntry, EnvironmentResult } from "../api-types.ts";
 import { projectIdFromManifest, resolveProjectRef } from "../manifest.ts";
 import { CliError, EXIT, usageError } from "../errors.ts";
 import { booleanOption, stringOption } from "../util.ts";
 import { readEnvFile } from "../env-file.ts";
 import { confirmDestructive } from "../prompt.ts";
+import { renderTable } from "../output.ts";
 
 const KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -62,18 +63,6 @@ function parseAssignment(raw: string | undefined): { key: string; value: string 
   return { key, value: raw.slice(equal + 1) };
 }
 
-function table(ctx: CommandContext, header: string[], rows: string[][]): void {
-  const widths = header.map((cell, index) =>
-    Math.max(cell.length, ...rows.map((row) => row[index].length)),
-  );
-  const render = (row: string[]): string =>
-    row
-      .map((cell, index) => cell.padEnd(widths[index]))
-      .join("  ")
-      .trimEnd();
-  ctx.stdout.write([render(header), ...rows.map(render)].join("\n") + "\n");
-}
-
 export function registerEnvCommands(define: DefineCommand): void {
   define({
     path: ["env", "list"],
@@ -99,8 +88,8 @@ export function registerEnvCommands(define: DefineCommand): void {
             ctx.stdout.write("No environment variables.\n");
             return;
           }
-          table(
-            ctx,
+          renderTable(
+            ctx.stdout,
             ["KEY", "TYPE", "VALUE"],
             value.entries.map((entry) => [
               entry.key,

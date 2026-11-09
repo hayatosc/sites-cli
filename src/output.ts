@@ -1,6 +1,7 @@
 // Error and result rendering to stdout/stderr (plan §3.1/§3.4).
 
 import { CliError } from "./errors.ts";
+import { createStyle, padEndVisible, visibleWidth } from "./style.ts";
 import type { Env, OutputStream } from "./types.ts";
 
 export function colorEnabled(
@@ -13,8 +14,16 @@ export function colorEnabled(
   return Boolean(stream.isTTY);
 }
 
-export function paint(text: string, code: string, enabled: boolean): string {
-  return enabled ? `\u001b[${code}m${text}\u001b[0m` : text;
+export function renderTable(stream: OutputStream, header: string[], rows: string[][]): void {
+  const widths = header.map((cell, index) =>
+    Math.max(visibleWidth(cell), ...rows.map((row) => visibleWidth(row[index]))),
+  );
+  const render = (row: string[]): string =>
+    row
+      .map((cell, index) => (index === row.length - 1 ? cell : padEndVisible(cell, widths[index])))
+      .join("  ")
+      .trimEnd();
+  stream.write([render(header), ...rows.map(render)].join("\n") + "\n");
 }
 
 export interface ErrorRenderOptions {
@@ -23,7 +32,8 @@ export interface ErrorRenderOptions {
 }
 
 export function printError(error: CliError, { stderr, color = false }: ErrorRenderOptions): void {
-  stderr.write(paint("Error: ", "31;1", color) + error.message + "\n");
-  if (error.hint) stderr.write(`  hint: ${error.hint}\n`);
-  if (error.docs) stderr.write(`  docs: ${error.docs}\n`);
+  const style = createStyle(color);
+  stderr.write(style.error("Error: ") + error.message + "\n");
+  if (error.hint) stderr.write(`  ${style.label("hint:")} ${error.hint}\n`);
+  if (error.docs) stderr.write(`  ${style.label("docs:")} ${style.url(error.docs)}\n`);
 }

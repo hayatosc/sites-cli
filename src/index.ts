@@ -17,7 +17,8 @@ import { loadAuthIdentity } from "./auth.ts";
 import type { Identity } from "./auth.ts";
 import { McpClient, VERSION } from "./mcp.ts";
 import { CliError, CommandExit, EXIT, usageError, normalizeExitCode } from "./errors.ts";
-import { colorEnabled, paint, printError } from "./output.ts";
+import { colorEnabled, printError } from "./output.ts";
+import { createStyle } from "./style.ts";
 import type { CommandContext, Env, OutputStream } from "./types.ts";
 import { forwardSignal, runCleanup, stringifyJson } from "./util.ts";
 
@@ -63,6 +64,7 @@ export async function main(
         );
       }
       color = colorEnabled(stderr, values, env);
+      const style = createStyle(color);
       if (values.profile)
         throw usageError(
           "USAGE_UNSUPPORTED_FLAG",
@@ -86,14 +88,14 @@ export async function main(
         quiet,
         getIdentity,
         log: (text) => {
-          if (!quiet) stderr.write(paint(text, "36", color) + "\n");
+          if (!quiet) stderr.write(style.heading(text) + "\n");
         },
         detail: (text) => {
-          if (!quiet) stderr.write(paint(text, "2", color) + "\n");
+          if (!quiet) stderr.write(style.dim(text) + "\n");
         },
         success: (text) => {
           if (!quiet && (stderr.isTTY || values.human))
-            stderr.write(`${paint("✓", "32", color)} ${text}\n`);
+            stderr.write(`${style.success("✓")} ${text}\n`);
         },
         mcp: () => (client ??= new McpClient(getIdentity(), { env })),
       };

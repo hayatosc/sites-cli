@@ -13,6 +13,7 @@ import { confirmDestructive } from "../prompt.ts";
 import { CliError, EXIT, usageError } from "../errors.ts";
 import { integerOption } from "../args.ts";
 import { stringOption } from "../util.ts";
+import { renderTable } from "../output.ts";
 
 interface VersionSummary {
   version_id: string;
@@ -50,18 +51,6 @@ function summarize(version: SiteVersionRecord): VersionSummary {
     deployment_id: version.deployment_id ?? null,
     created_at: version.created_at ?? null,
   };
-}
-
-function table(ctx: CommandContext, header: string[], rows: string[][]): void {
-  const widths = header.map((cell, index) =>
-    Math.max(cell.length, ...rows.map((row) => row[index].length)),
-  );
-  const render = (row: string[]): string =>
-    row
-      .map((cell, index) => cell.padEnd(widths[index]))
-      .join("  ")
-      .trimEnd();
-  ctx.stdout.write([render(header), ...rows.map(render)].join("\n") + "\n");
 }
 
 async function previousVersion(ctx: CommandContext, projectId: string): Promise<string> {
@@ -159,8 +148,8 @@ export function registerVersionCommands(define: DefineCommand): void {
             ctx.stdout.write("No versions.\n");
             return;
           }
-          table(
-            ctx,
+          renderTable(
+            ctx.stdout,
             ["VERSION_ID", "NUMBER", "COMMIT", "CREATED"],
             value.items.map((item) => [
               item.version_id,

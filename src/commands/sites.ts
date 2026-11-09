@@ -1,6 +1,6 @@
 // `sites list` and `sites info` (plan §4).
 
-import type { CommandContext, CommandResult, DefineCommand } from "../types.ts";
+import type { CommandResult, DefineCommand } from "../types.ts";
 import type {
   CustomDomainRecord,
   ListCustomDomainsResult,
@@ -13,6 +13,7 @@ import { resolveProjectRef } from "../manifest.ts";
 import { CliError, usageError } from "../errors.ts";
 import { integerOption } from "../args.ts";
 import { stringOption } from "../util.ts";
+import { renderTable } from "../output.ts";
 
 interface ListedSite {
   project_id?: string;
@@ -39,18 +40,6 @@ interface InfoData {
   latest_version_id: string | null;
   custom_domains: Array<{ hostname?: string; status?: string }>;
   mcp_connection?: Record<string, unknown> | null;
-}
-
-function renderTable(ctx: CommandContext, header: string[], rows: string[][]): void {
-  const widths = header.map((cell, index) =>
-    Math.max(cell.length, ...rows.map((row) => row[index].length)),
-  );
-  const render = (row: string[]): string =>
-    row
-      .map((cell, index) => cell.padEnd(widths[index]))
-      .join("  ")
-      .trimEnd();
-  ctx.stdout.write([render(header), ...rows.map(render)].join("\n") + "\n");
 }
 
 export function registerSiteCommands(define: DefineCommand): void {
@@ -115,7 +104,7 @@ export function registerSiteCommands(define: DefineCommand): void {
             return;
           }
           renderTable(
-            ctx,
+            ctx.stdout,
             ["SLUG", "PROJECT_ID", "ACCESS", "UPDATED"],
             value.items.map((item) => [
               item.slug ?? "",
