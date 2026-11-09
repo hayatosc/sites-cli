@@ -7,7 +7,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "type": "module",
   "scripts": {
@@ -28,5 +29,22 @@
   },
   "engines": {
     "node": ">=22.13"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hayatosc/sites-cli.git"
+  },
+  "homepage": "https://github.com/hayatosc/sites-cli#readme",
+  "bugs": {
+    "url": "https://github.com/hayatosc/sites-cli/issues"
+  },
+  "keywords": [
+    "chatgpt",
+    "sites",
+    "cli",
+    "deploy",
+    "openai",
+    "cloudflare",
+    "workers"
+  ]
 }

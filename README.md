@@ -1,27 +1,33 @@
 # @hayatosc/sites
 
-Command-line client for ChatGPT Sites. Requires Node.js 22.13 or newer.
+[![npm version](https://img.shields.io/npm/v/@hayatosc/sites.svg)](https://www.npmjs.com/package/@hayatosc/sites)
+[![Node.js](https://img.shields.io/node/v/@hayatosc/sites.svg)](https://nodejs.org)
+[![GitHub](https://img.shields.io/badge/github-hayatosc%2Fsites--cli-181717?logo=github)](https://github.com/hayatosc/sites-cli)
+
+Deploy ChatGPT Sites projects from the command line.
+
+`sites` creates, deploys, and operates ChatGPT Sites using shared Codex CLI credentials. There is no separate login or token store.
+
+Requires **Node.js 22.13** or newer.
+
+## Install
 
 ```sh
+# one-off
 npx @hayatosc/sites --help
+
+# or install globally
+npm install -g @hayatosc/sites
+sites --help
 ```
 
-The npm package keeps Rolldown as a normal runtime dependency, including its platform-specific native binding. Gunshi and tinyexec are bundled into the CLI JavaScript. Run `dist/cli.mjs` with the package's installed dependencies; no native-library path override is needed, and the Worker project does not need its own Rolldown installation.
+pnpm and bun work the same way (`pnpm dlx`, `bunx`).
 
-## Authentication
+The published package keeps [Rolldown](https://rolldown.rs) as a normal runtime dependency (including its platform-specific native binding). Gunshi and tinyexec are bundled into `dist/cli.mjs`. Run the CLI with the package's installed dependencies; Worker projects do not need their own Rolldown install.
 
-The CLI reuses the Codex CLI credentials in `~/.codex/auth.json`. If `SITES_ACCESS_TOKEN` is set, that token takes precedence. There is no separate login or token store.
+## Quick start
 
-```sh
-npx @hayatosc/sites auth whoami
-npx @hayatosc/sites auth whoami --check   # connect to MCP and verify
-```
-
-`auth whoami` reports `authenticated`, `authSource`, `tokenValid`, `accountId`, `expiresAt`, and `refreshTokenPresent`. Like `cf auth whoami`, an unauthenticated invocation succeeds with `authenticated: false` so scripts can inspect the result; `--check` still requires working credentials.
-
-## Getting started
-
-Start with an existing application project and prepare `.openai/hosting.json`. For a static site:
+Use an existing application project. Prepare `.openai/hosting.json` (static example):
 
 ```json
 {
@@ -36,60 +42,130 @@ npx @hayatosc/sites deploy
 npx @hayatosc/sites open
 ```
 
-`create` creates the site and stores the returned `project_id` in the manifest. `deploy` builds the project, syncs source, uploads the archive, and deploys it. Project scaffolding, local development and type generation belong to your project's own tools. See the configuration manual for Worker manifests.
+`create` creates the remote site and writes `project_id` into the manifest. `deploy` builds, syncs source, uploads the archive, and deploys. Scaffolding, local development, and type generation stay with your project's own tools. Worker manifests and Wrangler conversion are covered in the [configuration manual](docs/configuration.md).
+
+## Authentication
+
+Credentials are resolved in this order:
+
+1. `SITES_ACCESS_TOKEN` (if set)
+2. `tokens.access_token` in `~/.codex/auth.json` (Codex CLI)
+
+```sh
+npx @hayatosc/sites auth whoami
+npx @hayatosc/sites auth whoami --check   # connect to MCP and verify
+```
+
+`auth whoami` reports `authenticated`, `authSource`, `tokenValid`, `accountId`, `expiresAt`, and `refreshTokenPresent`. Without credentials it succeeds with `authenticated: false` so scripts can inspect the result; `--check` requires working credentials.
 
 ## Commands
 
-| Command                                                  | Description                                    |
-| -------------------------------------------------------- | ---------------------------------------------- |
-| `sites create <slug>`                                    | Create a site and save `project_id`            |
-| `sites list`                                             | List sites                                     |
-| `sites info [project\|slug]`                             | Show site details                              |
-| `sites complete [shell]`                                 | Print shell completion setup                   |
-| `sites deploy`                                           | Build and deploy (`--prebuilt` to skip build)  |
-| `sites status [deployment_id]`                           | Show deployment status (`--watch` to wait)     |
-| `sites logs`                                             | Fetch Worker logs (`--follow` to stream)       |
-| `sites versions create\|list\|get\|show\|rollback`       | List, inspect, and roll back versions          |
-| `sites env list\|get\|set\|unset\|pull\|push`            | Manage environment variables                   |
-| `sites access show\|set`                                 | Manage access mode                             |
-| `sites domains add\|get\|list\|refresh\|remove`          | Manage custom domains                          |
-| `sites analytics summary\|events`                        | Read analytics                                 |
-| `sites open`                                             | Open in a browser (`--print` for the URL only) |
-| `sites delete --force`                                   | Delete a site                                  |
-| `sites doctor`                                           | Diagnose the local environment and connection  |
-| `sites cli search <query>`                               | Rank up to five commands by intent             |
-| `sites docs search <query>`                              | Search the bundled manual                      |
-| `sites schema <tool\|command..>` / `sites schema --list` | Print MCP tool input schemas                   |
+| Command | Description |
+| --- | --- |
+| `sites create <slug>` | Create a site and save `project_id` |
+| `sites list` | List sites |
+| `sites info [project\|slug]` | Show site details |
+| `sites complete [shell]` | Print shell completion setup |
+| `sites deploy` | Build and deploy (`--prebuilt` skips the build) |
+| `sites status [deployment_id]` | Show deployment status (`--watch` to wait) |
+| `sites logs` | Fetch Worker logs (`--follow` to stream) |
+| `sites versions create\|list\|get\|show\|rollback` | Manage versions |
+| `sites env list\|get\|set\|unset\|pull\|push` | Manage environment variables |
+| `sites access show\|set` | Manage access mode |
+| `sites domains add\|get\|list\|refresh\|remove` | Manage custom domains |
+| `sites analytics summary\|events` | Read analytics |
+| `sites open` | Open in a browser (`--print` for the URL only) |
+| `sites delete --force` | Delete a site |
+| `sites doctor` | Diagnose the local environment and connection |
+| `sites auth whoami [--check]` | Show identity status |
+| `sites cli search <query>` | Rank up to five commands by intent |
+| `sites docs search <query>` | Search the bundled manual |
+| `sites schema <tool\|command..>` / `sites schema --list` | Print MCP tool input schemas |
 
-Run `sites <command> --help` for command-specific flags.
+Run `sites <command> --help` for command-specific flags. Agents should prefer `sites cli search` and `sites docs search` over chaining nested `--help` calls.
+
+### Manual
+
+- [Projects](docs/projects.md) — setup, creation, listing, deletion, completion
+- [Deployment](docs/deploy.md) — build, source sync, upload, status, logs
+- [Operations](docs/operations.md) — versions, env, access, domains, analytics, doctor
+- [Configuration](docs/configuration.md) — `hosting.json`, bindings, Wrangler conversion
+- [Reference](docs/reference.md) — flags, environment variables, output shapes
 
 ## Output and exit codes
 
-Like cf, success data is bare JSON on stdout and errors are human-readable on stderr. Exit codes are 0 (success), 1 (any failure), and 130 (interruption or declined confirmation), including deployment builds. `--quiet` suppresses results and progress, but not errors; `--quiet=false` re-enables output. Success labels appear only on interactive stderr. `--human` is a human-readable extension.
+Success data is bare JSON on stdout. Errors are human-readable on stderr. Search results are bare arrays. `logs --follow` streams NDJSON (human lines with `--human`).
 
-Search results are bare arrays. `logs --follow` streams NDJSON (human lines with `--human`). The former `--json` envelope/structured-error mode and `--yes`/`-y` flags are removed. Update scripts to read results directly and use `--force` on commands requiring noninteractive confirmation; `--quiet` is not consent.
+| Code | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | Any failure (including a failed deployment build) |
+| 130 | Interrupted or declined confirmation |
 
-Every command accepts `--dry-run`. Most preview parsed arguments only, without auth, network, files or argument values. Deploy/version creation may build locally; create/env push validate local inputs.
+`--quiet` / `-q` suppresses results and progress, not errors (`--quiet=false` restores output). `--human` prints human-readable tables/text. There is no `--json` envelope mode and no `--yes`/`-y`; use `--force` (`-f`) where confirmation must be skipped.
 
-| Code | Meaning                            |
-| ---- | ---------------------------------- |
-| 0    | Success                            |
-| 1    | General error or failed deployment |
-| 130  | Interrupted                        |
+Every command accepts `--dry-run`. Most commands preview parsed arguments only (no auth, network, or filesystem side effects). Deploy and version creation may still build locally; create and env push validate local inputs.
 
-## Converting from wrangler
+## Configuration and environment
 
-When `.openai/hosting.json` is absent and `wrangler.jsonc`, `wrangler.json`, or `wrangler.toml` is present, `deploy` converts it to `.openai/hosting.json` and bundles the Worker with Rolldown. If an unsupported binding is present, the command stops without writing files. Use `--allow-unsupported <kind>` to continue intentionally.
+Site settings live in `.openai/hosting.json`. Common keys: `project_id`, `static.directory`, `static.not_found_handling`, `d1`, `r2`, `capabilities`. See [Configuration](docs/configuration.md).
 
-For other projects, `deploy` detects the framework, package manager, build command, and output directory using cf-compatible rules. Static output directories such as `dist`, `build`, `out`, `public`, and `.output/public` are normalized to `dist/`; worker output is rebundled to `dist/server/index.js`.
+| Variable | Description |
+| --- | --- |
+| `SITES_ACCESS_TOKEN` | Access token (overrides Codex auth file) |
+| `SITES_AUTH_PATH` | Path to the Codex auth file |
+| `SITES_AUTH_URL` | Token refresh endpoint |
+| `SITES_MCP_URL` | MCP server URL |
+| `SITES_API_BASE` | File API base URL |
+| `SITES_RETRY_BASE_MS` | Base delay for rate-limit retries |
+| `SITES_UPLOAD_POLL_MS` | Upload completion polling interval |
+| `SITES_LOG_INTERVAL_MS` | `logs --follow` polling interval |
+| `NO_COLOR` | Disable color |
+
+Normal usage does not require any of these variables.
+
+When `.openai/hosting.json` is absent and a Wrangler config is present, `deploy` can convert `wrangler.jsonc` / `wrangler.json` / `wrangler.toml` and bundle the Worker with Rolldown. Unsupported bindings stop the conversion unless you pass `--allow-unsupported <kind>`.
+
+## Examples
+
+```sh
+# Deploy with a message; skip confirmation when making a site public
+npx @hayatosc/sites deploy --message "Update pricing" --public --force
+
+# Deploy an already-built dist/
+npx @hayatosc/sites deploy --prebuilt --allow-dirty
+
+# Apply env and secrets during deploy
+npx @hayatosc/sites deploy --env-file .env.production --secrets-file .env.secrets
+
+# Watch a deployment finish
+npx @hayatosc/sites status --watch
+
+# Roll back to the previous successful version
+npx @hayatosc/sites versions rollback --previous --force
+
+# Find a command or a manual section
+npx @hayatosc/sites cli search "custom domain"
+npx @hayatosc/sites docs search "not_found_handling"
+```
 
 ## Development
 
 ```sh
-ni
-nlx vp check
-nlx vp test
-nlx vp pack
+npm install
+npm run typecheck   # vp check
+npm test            # vp test
+npm run build       # vp pack → dist/cli.mjs
 ```
 
-`dist/cli.mjs` is the executable. Build, test, lint, formatting, and type checking all use Vite+ (`vp`). The user manual lives in `docs/` and is embedded into the CLI at build time, so `sites docs search` does not need an external `docs/` directory. Help output includes a command-discovery block when an agent harness is detected; `sites cli search` and `sites docs search` are the intended entry points for agents.
+Build, test, lint, formatting, and type checking use [Vite+](https://viteplus.dev) (`vp`). The user manual in `docs/` is embedded into the CLI at build time, so `sites docs search` does not need a local `docs/` directory after install.
+
+`dist/` is produced by the build and is gitignored; `prepack` rebuilds before `npm pack` / publish.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+License is not declared yet. See open questions before redistributing.
